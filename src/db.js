@@ -1,6 +1,5 @@
 /**
  * Capa de base de datos — Supabase (única fuente de verdad).
- * Sin fallback local. Si las credenciales no están, la app muestra error de configuración.
  */
 import { createClient } from "@supabase/supabase-js";
 
@@ -13,12 +12,9 @@ export const dbReady = Boolean(
 
 export const supabase = dbReady ? createClient(URL, KEY) : null;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Generic helpers ──────────────────────────────────────────────────────────
 
-/**
- * Carga todos los registros de una tabla como objetos JS.
- * Retorna [] si la tabla no existe o hay un error (resiliente).
- */
+/** Carga todos los registros de una tabla. Retorna [] si la tabla no existe. */
 export async function fetchTable(table) {
   if (!supabase) throw new Error("Supabase no configurado");
   try {
@@ -26,10 +22,7 @@ export async function fetchTable(table) {
       .from(table)
       .select("data")
       .order("fecha", { ascending: false, nullsFirst: false });
-    if (error) {
-      console.warn(`fetchTable(${table}): ${error.message}`);
-      return [];
-    }
+    if (error) { console.warn(`fetchTable(${table}): ${error.message}`); return []; }
     return data.map((r) => r.data);
   } catch (e) {
     console.warn(`fetchTable(${table}) exception:`, e);
@@ -37,7 +30,6 @@ export async function fetchTable(table) {
   }
 }
 
-/** Guarda o actualiza un registro (upsert) */
 export async function saveRecord(table, record) {
   if (!supabase) throw new Error("Supabase no configurado");
   const { error } = await supabase.from(table).upsert({
@@ -48,20 +40,17 @@ export async function saveRecord(table, record) {
   if (error) console.error(`saveRecord(${table}):`, error);
 }
 
-/** Elimina un registro por id */
 export async function deleteRecord(table, id) {
   if (!supabase) throw new Error("Supabase no configurado");
   const { error } = await supabase.from(table).delete().eq("id", id);
   if (error) console.error(`deleteRecord(${table}):`, error);
 }
 
-/** Para cuentas (no tienen fecha) */
+// ─── Cuentas ──────────────────────────────────────────────────────────────────
+
 export async function saveCuenta(cuenta) {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { error } = await supabase.from("cuentas").upsert({
-    id: cuenta.id,
-    data: cuenta,
-  });
+  const { error } = await supabase.from("cuentas").upsert({ id: cuenta.id, data: cuenta });
   if (error) console.error("saveCuenta:", error);
 }
 
@@ -72,27 +61,63 @@ export async function fetchCuentas() {
   return data.map((r) => r.data);
 }
 
-/** Para transferencias (sin fecha en row, se guarda en data) */
+// ─── Transferencias ───────────────────────────────────────────────────────────
+
 export async function fetchTransferencias() {
   if (!supabase) throw new Error("Supabase no configurado");
   try {
     const { data, error } = await supabase.from("transferencias").select("data");
-    if (error) {
-      console.warn("fetchTransferencias:", error.message);
-      return [];
-    }
+    if (error) { console.warn("fetchTransferencias:", error.message); return []; }
     return data.map((r) => r.data);
-  } catch (e) {
-    console.warn("fetchTransferencias exception:", e);
-    return [];
-  }
+  } catch (e) { console.warn("fetchTransferencias exception:", e); return []; }
 }
 
 export async function saveTransferencia(tr) {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { error } = await supabase.from("transferencias").upsert({
-    id: tr.id,
-    data: tr,
-  });
+  const { error } = await supabase.from("transferencias").upsert({ id: tr.id, data: tr });
   if (error) console.error("saveTransferencia:", error);
+}
+
+// ─── Precios de venta (mapa sku → precioVenta) ────────────────────────────────
+
+/** Retorna un objeto {[sku]: precioVenta} */
+export async function fetchPrecios() {
+  if (!supabase) throw new Error("Supabase no configurado");
+  try {
+    const { data, error } = await supabase.from("precios").select("data");
+    if (error) { console.warn("fetchPrecios:", error.message); return {}; }
+    return data.reduce((acc, r) => {
+      if (r.data?.sku) acc[r.data.sku] = r.data.precioVenta || 0;
+      return acc;
+    }, {});
+  } catch (e) { console.warn("fetchPrecios exception:", e); return {}; }
+}
+
+export async function savePrecio(sku, precioVenta) {
+  if (!supabase) throw new Error("Supabase no configurado");
+  const { error } = await supabase.from("precios").upsert({ id: sku, data: { sku, precioVenta } });
+  if (error) console.error("savePrecio:", error);
+}
+
+// ─── Productos extra (catálogo personalizado) ─────────────────────────────────
+
+export async function fetchProductos() {
+  if (!supabase) throw new Error("Supabase no configurado");
+  try {
+    const { data, error } = await supabase.from("productos").select("data");
+    if (error) { console.warn("fetchProductos:", error.message); return []; }
+    return data.map((r) => r.data);
+  } catch (e) { console.warn("fetchProductos exception:", e); return []; }
+}
+
+export async function saveProducto(p) {
+  if (!supabase) throw new Error("Supabase no configurado");
+  const { error } = await supabase.from("productos").upsert({ id: p.id, data: p });
+  if (error) console.error("saveProducto:", error);
+}
+
+export async function deleteProducto(id) {
+  if (!supabase) throw new Error("Supabase no configurado");
+  const { error } = await supabase.from("productos").delete().eq("id", id);
+  if (error) console.error("deleteProducto:", error);
 }

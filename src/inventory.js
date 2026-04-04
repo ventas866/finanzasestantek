@@ -1,22 +1,35 @@
 import { round2 } from "./utils.js";
 
 /**
- * Construye el inventario actual a partir de:
- *  - baseCatalogo: productos base del catálogo
- *  - compras: entradas de stock (ítems esLote se ignoran)
- *  - ventas: salidas de stock (ítems esReventa se ignoran)
- *  - ajustes: correcciones manuales de stock (+/-)
- *  - conversiones: lotes de madera → piezas terminadas
+ * Construye el inventario actual.
+ * Retorna cada producto con: stock, costo (promedio ponderado), precioVenta, margenPct
+ *
+ * @param {Array}  baseCatalogo  - catálogo base (CATALOGO_BASE + productosExtra)
+ * @param {Array}  compras       - entradas (ítems esLote se ignoran)
+ * @param {Array}  ventas        - salidas (ítems esReventa se ignoran)
+ * @param {Array}  ajustes       - correcciones manuales de stock
+ * @param {Array}  conversiones  - lotes convertidos en piezas
+ * @param {Object} precios       - mapa {[sku]: precioVenta} guardado en Supabase
  */
-export function buildInventory(baseCatalogo, compras, ventas, ajustes = [], conversiones = []) {
+export function buildInventory(
+  baseCatalogo,
+  compras,
+  ventas,
+  ajustes = [],
+  conversiones = [],
+  precios = {}
+) {
   const map = new Map(
-    baseCatalogo.map((item) => [
-      item.sku,
-      { ...item, stock: 0, costo: item.costoBase || 0 },
-    ])
+    baseCatalogo.map((item) => {
+      const precioVenta = precios[item.sku] ?? item.precioVenta ?? 0;
+      return [
+        item.sku,
+        { ...item, stock: 0, costo: item.costoBase || 0, precioVenta },
+      ];
+    })
   );
 
-  // Compras incrementan stock (salvo ítems de lote/materia prima)
+  // Compras → aumentan stock
   for (const compra of compras) {
     for (const linea of compra.items || []) {
       if (linea.esLote) continue;
@@ -24,18 +37,15 @@ export function buildInventory(baseCatalogo, compras, ventas, ajustes = [], conv
       if (!actual) continue;
       const cantNueva = Number(linea.cantidad || 0);
       const costoNuevo = Number(linea.costoUnitario || 0);
-      const costoAnteriorTotal = actual.stock * actual.costo;
-      const costoNuevoTotal = cantNueva * costoNuevo;
       const nuevoStock = actual.stock + cantNueva;
-      const nuevoCosto =
-        nuevoStock > 0
-          ? round2((costoAnteriorTotal + costoNuevoTotal) / nuevoStock)
-          : actual.costo;
+      const nuevoCosto = nuevoStock > 0
+        ? round2((actual.stock * actual.costo + cantNueva * costoNuevo) / nuevoStock)
+        : actual.costo;
       map.set(linea.sku, { ...actual, stock: nuevoStock, costo: nuevoCosto });
     }
   }
 
-  // Ventas decrementan stock (ítems de reventa no afectan inventario propio)
+  // Ventas → disminuyen stock
   for (const venta of ventas) {
     for (const linea of venta.items || []) {
       if (linea.esReventa === true) continue;
@@ -51,7 +61,7 @@ export function buildInventory(baseCatalogo, compras, ventas, ajustes = [], conv
     }
   }
 
-  // Ajustes de stock (correcciones manuales: conteo físico, pérdidas, etc.)
+  // Ajustes manuales
   for (const aj of ajustes) {
     const actual = map.get(aj.sku);
     if (!actual) continue;
@@ -61,23 +71,27 @@ export function buildInventory(baseCatalogo, compras, ventas, ajustes = [], conv
     });
   }
 
-  // Conversiones de lote (madera cruda → piezas terminadas de catálogo)
+  // Conversiones (lote → piezas)
   for (const conv of conversiones) {
     for (const pieza of conv.piezas || []) {
       const actual = map.get(pieza.sku);
       if (!actual) continue;
       const cantNueva = Number(pieza.cantidad || 0);
       const costoNuevo = Number(pieza.costoUnitario || 0);
-      const costoAnteriorTotal = actual.stock * actual.costo;
-      const costoNuevoTotal = cantNueva * costoNuevo;
       const nuevoStock = actual.stock + cantNueva;
-      const nuevoCosto =
-        nuevoStock > 0
-          ? round2((costoAnteriorTotal + costoNuevoTotal) / nuevoStock)
-          : actual.costo;
+      const nuevoCosto = nuevoStock > 0
+        ? round2((actual.stock * actual.costo + cantNueva * costoNuevo) / nuevoStock)
+        : actual.costo;
       map.set(pieza.sku, { ...actual, stock: nuevoStock, costo: nuevoCosto });
     }
   }
 
-  return Array.from(map.values());
+  // Calcular margen estimado por producto
+  return Array.from(map.values()).map((item) => {
+    const margenPct = item.precioVenta > 0 && item.costo > 0
+      ? round2(((item.precioVenta - item.costo) / item.precioVenta) * 100)
+      : null;
+    const valorVenta = item.stock * item.precioVenta;
+    return { ...item, margenPct, valorVenta };
+  });
 }

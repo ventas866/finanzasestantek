@@ -5,6 +5,8 @@ import { CATALOGO_BASE, NAV_ITEMS, DEFAULT_CUENTAS } from "./constants.js";
 import {
   dbReady,
   fetchTable, fetchCuentas, fetchTransferencias,
+  fetchPrecios, savePrecio,
+  fetchProductos, saveProducto, deleteProducto,
   saveRecord, deleteRecord,
   saveCuenta, saveTransferencia,
 } from "./db.js";
@@ -32,14 +34,12 @@ const ICONS = {
   Rentabilidad: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
 };
 
-// ─── Merge cuentas (adds new default accounts if missing) ─────────────────────
 function mergeCuentas(stored) {
-  const ids = stored.map((c) => c.id);
+  const ids     = stored.map((c) => c.id);
   const missing = DEFAULT_CUENTAS.filter((d) => !ids.includes(d.id));
   return missing.length > 0 ? [...stored, ...missing] : stored;
 }
 
-// ─── Pantalla de error: Supabase no configurado ───────────────────────────────
 function NoSupabase() {
   return (
     <div style={{ minHeight:"100vh", background:"#0f172a", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
@@ -48,28 +48,25 @@ function NoSupabase() {
         <h1 style={{ color:"white", fontWeight:900, fontSize:22, marginBottom:12 }}>Configuración requerida</h1>
         <p style={{ color:"#94a3b8", fontSize:15, lineHeight:1.6, marginBottom:24 }}>
           Necesitas conectar Supabase para usar Estantek Finanzas.<br/>
-          Edita el archivo <code style={{ background:"#1e293b", padding:"2px 6px", borderRadius:4, color:"#f97316" }}>.env</code> con tus credenciales:
+          Edita el archivo <code style={{ background:"#1e293b", padding:"2px 6px", borderRadius:4, color:"#f97316" }}>.env</code> con tus credenciales.
         </p>
         <div style={{ background:"#1e293b", borderRadius:12, padding:"16px 20px", textAlign:"left", fontFamily:"monospace", fontSize:13, color:"#7dd3fc", lineHeight:1.8 }}>
           VITE_SUPABASE_URL=https://xxxx.supabase.co<br/>
           VITE_SUPABASE_ANON_KEY=eyJh...
         </div>
-        <p style={{ color:"#64748b", fontSize:13, marginTop:20 }}>
-          Encuéntralas en supabase.com → tu proyecto → Settings → API
-        </p>
       </div>
     </div>
   );
 }
 
-// ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [loading, setLoading]         = useState(true);
-  const [loadError, setLoadError]     = useState(null);
-  const [pagina, setPagina]           = useState("Dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mobileOpen, setMobileOpen]   = useState(false);
+  const [loading,    setLoading]    = useState(true);
+  const [loadError,  setLoadError]  = useState(null);
+  const [pagina,     setPagina]     = useState("Dashboard");
+  const [sidebarOpen,setSidebarOpen]= useState(true);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
+  // ── Data state ────────────────────────────────────────────────────────────
   const [compras,        setCompras]        = useState([]);
   const [ventas,         setVentas]         = useState([]);
   const [gastos,         setGastos]         = useState([]);
@@ -78,65 +75,75 @@ export default function App() {
   const [ajustes,        setAjustes]        = useState([]);
   const [conversiones,   setConversiones]   = useState([]);
   const [cuentas,        setCuentas]        = useState(DEFAULT_CUENTAS);
+  const [productosExtra, setProductosExtra] = useState([]);
+  const [precios,        setPrecios]        = useState({}); // { [sku]: precioVenta }
 
-  // ── Compras form state ────────────────────────────────────────────────────
-  const [editingCompraId,   setEditingCompraId]   = useState(null);
-  const [formCompra,        setFormCompra]         = useState({ fecha:today(), proveedor:"", flete:"", descripcion:"" });
-  const [compraLinea,       setCompraLinea]        = useState({ sku:"VIG-240", cantidad:"", costoUnitario:"", esLibre:false, skuLibre:"", nombreLibre:"" });
-  const [compraItems,       setCompraItems]        = useState([]);
-  const [compraPagos,       setCompraPagos]        = useState([]);
-  const [compraPagoLinea,   setCompraPagoLinea]    = useState({ cuentaId:"", monto:"" });
+  // ── Compras form ──────────────────────────────────────────────────────────
+  const [editingCompraId,  setEditingCompraId]  = useState(null);
+  const [formCompra,       setFormCompra]        = useState({ fecha:today(), proveedor:"", flete:"", descripcion:"" });
+  const [compraLinea,      setCompraLinea]       = useState({ sku:"VIG-240", cantidad:"", costoUnitario:"", esLibre:false, skuLibre:"", nombreLibre:"" });
+  const [compraItems,      setCompraItems]       = useState([]);
+  const [compraPagos,      setCompraPagos]       = useState([]);
+  const [compraPagoLinea,  setCompraPagoLinea]   = useState({ cuentaId:"", monto:"" });
 
-  // ── Ventas form state ─────────────────────────────────────────────────────
-  const [editingVentaId,  setEditingVentaId]  = useState(null);
-  const [formVenta,       setFormVenta]        = useState({ fecha:today(), cliente:"", origen:"Inventario propio", descripcion:"" });
-  const [ventaLinea,      setVentaLinea]       = useState({ sku:"VIG-240", cantidad:"", precioUnitario:"", costoUnitario:"", esReventa:false });
-  const [ventaItems,      setVentaItems]       = useState([]);
-  const [ventaPagos,      setVentaPagos]       = useState([]);
-  const [ventaPagoLinea,  setVentaPagoLinea]   = useState({ cuentaId:"", monto:"" });
+  // ── Ventas form ───────────────────────────────────────────────────────────
+  const [editingVentaId, setEditingVentaId] = useState(null);
+  const [formVenta,      setFormVenta]       = useState({ fecha:today(), cliente:"", origen:"Inventario propio", descripcion:"" });
+  const [ventaLinea,     setVentaLinea]      = useState({ sku:"VIG-240", cantidad:"", precioUnitario:"", costoUnitario:"", esReventa:false });
+  const [ventaItems,     setVentaItems]      = useState([]);
+  const [ventaPagos,     setVentaPagos]      = useState([]);
+  const [ventaPagoLinea, setVentaPagoLinea]  = useState({ cuentaId:"", monto:"" });
 
-  // ── Gastos form state ─────────────────────────────────────────────────────
+  // ── Gastos form ───────────────────────────────────────────────────────────
   const [editingGastoId, setEditingGastoId] = useState(null);
   const [formGasto,      setFormGasto]       = useState({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" });
 
-  // ── Inversiones form state ────────────────────────────────────────────────
+  // ── Inversiones form ──────────────────────────────────────────────────────
   const [formInversion, setFormInversion] = useState({ fecha:today(), socio:"Raúl", valor:"", descripcion:"", cuentaId:"" });
 
-  const catalogo = useMemo(
-    () => buildInventory(CATALOGO_BASE, compras, ventas, ajustes, conversiones),
-    [compras, ventas, ajustes, conversiones]
+  // ── Catálogo completo: base + productos extra ─────────────────────────────
+  const catalogoCompleto = useMemo(
+    () => [
+      ...CATALOGO_BASE,
+      ...productosExtra.map((p) => ({ ...p, isCustom: true })),
+    ],
+    [productosExtra]
   );
 
-  // ── Carga inicial desde Supabase ──────────────────────────────────────────
+  const catalogo = useMemo(
+    () => buildInventory(catalogoCompleto, compras, ventas, ajustes, conversiones, precios),
+    [catalogoCompleto, compras, ventas, ajustes, conversiones, precios]
+  );
+
+  // ── Carga inicial ─────────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [c, v, g, i, cu, tr, aj, co] = await Promise.all([
+        const [c, v, g, i, cu, tr, aj, co, prods, precs] = await Promise.all([
           fetchTable("compras"),
           fetchTable("ventas"),
           fetchTable("gastos"),
           fetchTable("inversiones"),
           fetchCuentas(),
           fetchTransferencias(),
-          fetchTable("ajustes"),       // resiliente: retorna [] si no existe
-          fetchTable("conversiones"),  // resiliente: retorna [] si no existe
+          fetchTable("ajustes"),
+          fetchTable("conversiones"),
+          fetchProductos(),
+          fetchPrecios(),
         ]);
-        setCompras(c);
-        setVentas(v);
-        setGastos(g);
-        setInversiones(i);
-        setTransferencias(tr);
-        setAjustes(aj);
-        setConversiones(co);
+        setCompras(c); setVentas(v); setGastos(g); setInversiones(i);
+        setTransferencias(tr); setAjustes(aj); setConversiones(co);
+        setProductosExtra(prods);
+        setPrecios(precs);
         if (cu.length > 0) setCuentas(mergeCuentas(cu));
         else {
           for (const cuenta of DEFAULT_CUENTAS) await saveCuenta(cuenta);
           setCuentas(DEFAULT_CUENTAS);
         }
       } catch (e) {
-        console.error("Error al cargar desde Supabase:", e);
+        console.error("Error al cargar:", e);
         setLoadError(e.message || "Error de conexión");
       } finally {
         setLoading(false);
@@ -145,12 +152,11 @@ export default function App() {
     load();
   }, []);
 
-  // ── Helpers DB ────────────────────────────────────────────────────────────
-  const dbSave   = useCallback((table, record) => saveRecord(table, record), []);
-  const dbDelete = useCallback((table, id)      => deleteRecord(table, id),  []);
-  const dbSaveCu = useCallback((cuenta)         => saveCuenta(cuenta),       []);
+  // ── DB helpers ────────────────────────────────────────────────────────────
+  const dbSave   = useCallback((table, record) => saveRecord(table, record),    []);
+  const dbDelete = useCallback((table, id)      => deleteRecord(table, id),     []);
+  const dbSaveCu = useCallback((cuenta)         => saveCuenta(cuenta),          []);
 
-  // ── Helper: derive formaPago from pagos ───────────────────────────────────
   function deriveFormaPago(total, pagos) {
     const sum = pagos.reduce((a, p) => a + p.monto, 0);
     if (sum >= total) return "Contado";
@@ -158,40 +164,29 @@ export default function App() {
     return "Mixto";
   }
 
-  // ── Handlers compras ──────────────────────────────────────────────────────
+  // ── Compras ───────────────────────────────────────────────────────────────
   function limpiarCompraForm() {
     setEditingCompraId(null);
     setFormCompra({ fecha:today(), proveedor:"", flete:"", descripcion:"" });
     setCompraLinea({ sku:"VIG-240", cantidad:"", costoUnitario:"", esLibre:false, skuLibre:"", nombreLibre:"" });
-    setCompraItems([]);
-    setCompraPagos([]);
-    setCompraPagoLinea({ cuentaId:"", monto:"" });
+    setCompraItems([]); setCompraPagos([]); setCompraPagoLinea({ cuentaId:"", monto:"" });
   }
 
   function guardarCompra() {
     if (!formCompra.proveedor || compraItems.length === 0) return;
-    const flete     = Number(formCompra.flete || 0);
-    const subtotal  = compraItems.reduce((a, i) => a + i.subtotal, 0);
-    const total     = subtotal + flete;
+    const flete = Number(formCompra.flete || 0);
+    const subtotal = compraItems.reduce((a, i) => a + i.subtotal, 0);
+    const total    = subtotal + flete;
     const formaPago = deriveFormaPago(total, compraPagos);
     const compra = {
       id: editingCompraId || uid(),
-      fecha: formCompra.fecha,
-      proveedor: formCompra.proveedor,
-      descripcion: formCompra.descripcion,
-      formaPago,
-      pagos: compraPagos,
+      fecha: formCompra.fecha, proveedor: formCompra.proveedor, descripcion: formCompra.descripcion,
+      formaPago, pagos: compraPagos,
       cuentaId: compraPagos.length === 1 && formaPago === "Contado" ? compraPagos[0].cuentaId : null,
       flete, items: compraItems, subtotal, total,
-      pagosProv: editingCompraId
-        ? (compras.find((c) => c.id === editingCompraId)?.pagosProv || [])
-        : [],
+      pagosProv: editingCompraId ? (compras.find((c)=>c.id===editingCompraId)?.pagosProv||[]) : [],
     };
-    if (editingCompraId) {
-      setCompras((p) => p.map((x) => x.id === editingCompraId ? compra : x));
-    } else {
-      setCompras((p) => [compra, ...p]);
-    }
+    setCompras((p) => editingCompraId ? p.map((x)=>x.id===editingCompraId?compra:x) : [compra,...p]);
     dbSave("compras", compra);
     limpiarCompraForm();
   }
@@ -201,16 +196,15 @@ export default function App() {
     setFormCompra({ fecha:c.fecha, proveedor:c.proveedor, flete:c.flete?.toString()||"", descripcion:c.descripcion||"" });
     setCompraItems(c.items||[]);
     if (c.pagos?.length > 0) setCompraPagos(c.pagos);
-    else if (c.cuentaId && c.formaPago === "Contado") setCompraPagos([{ id:uid(), cuentaId:c.cuentaId, monto:c.total }]);
+    else if (c.cuentaId && c.formaPago==="Contado") setCompraPagos([{ id:uid(), cuentaId:c.cuentaId, monto:c.total }]);
     else setCompraPagos([]);
-    setPagina("Compras");
-    setMobileOpen(false);
+    setPagina("Compras"); setMobileOpen(false);
     window.scrollTo({ top:0, behavior:"smooth" });
   }
 
   function eliminarCompra(id) {
     if (!window.confirm("¿Eliminar esta compra?")) return;
-    setCompras((p) => p.filter((x) => x.id !== id));
+    setCompras((p) => p.filter((x)=>x.id!==id));
     dbDelete("compras", id);
     if (editingCompraId === id) limpiarCompraForm();
   }
@@ -224,43 +218,34 @@ export default function App() {
     }));
   }
 
-  // ── Handlers ventas ───────────────────────────────────────────────────────
+  // ── Ventas ────────────────────────────────────────────────────────────────
   function limpiarVentaForm() {
     setEditingVentaId(null);
     setFormVenta({ fecha:today(), cliente:"", origen:"Inventario propio", descripcion:"" });
     setVentaLinea({ sku:"VIG-240", cantidad:"", precioUnitario:"", costoUnitario:"", esReventa:false });
-    setVentaItems([]);
-    setVentaPagos([]);
-    setVentaPagoLinea({ cuentaId:"", monto:"" });
+    setVentaItems([]); setVentaPagos([]); setVentaPagoLinea({ cuentaId:"", monto:"" });
   }
 
   function guardarVenta() {
     if (!formVenta.cliente || ventaItems.length === 0) return;
-    const subtotal     = ventaItems.reduce((a, i) => a + i.subtotalVenta, 0);
-    const costoTotal   = ventaItems.reduce((a, i) => a + i.subtotalCosto, 0);
-    const costoReventa = ventaItems.filter((i) => i.esReventa).reduce((a, i) => a + i.subtotalCosto, 0);
+    const subtotal     = ventaItems.reduce((a,i)=>a+i.subtotalVenta,0);
+    const costoTotal   = ventaItems.reduce((a,i)=>a+i.subtotalCosto,0);
+    const costoReventa = ventaItems.filter((i)=>i.esReventa).reduce((a,i)=>a+i.subtotalCosto,0);
     const total        = subtotal;
     const formaPago    = deriveFormaPago(total, ventaPagos);
-    const tienePropio  = ventaItems.some((i) => !i.esReventa);
-    const tieneReventa = ventaItems.some((i) => i.esReventa);
-    const origenFinal  = tienePropio && tieneReventa ? "Mixto"
-                       : tieneReventa ? "Reventa"
-                       : formVenta.origen;
+    const tienePropio  = ventaItems.some((i)=>!i.esReventa);
+    const tieneReventa = ventaItems.some((i)=>i.esReventa);
+    const origenFinal  = tienePropio && tieneReventa ? "Mixto" : tieneReventa ? "Reventa" : formVenta.origen;
     const venta = {
       id: editingVentaId || uid(),
       fecha: formVenta.fecha, cliente: formVenta.cliente, origen: origenFinal,
       descripcion: formVenta.descripcion,
       formaPago, pagos: ventaPagos,
-      cuentaId: ventaPagos.length === 1 && formaPago === "Contado" ? ventaPagos[0].cuentaId : null,
-      items: ventaItems, subtotal, total, costoTotal, costoReventa,
-      utilidad: total - costoTotal,
-      abonos: editingVentaId ? (ventas.find((v) => v.id === editingVentaId)?.abonos||[]) : [],
+      cuentaId: ventaPagos.length===1&&formaPago==="Contado" ? ventaPagos[0].cuentaId : null,
+      items: ventaItems, subtotal, total, costoTotal, costoReventa, utilidad: total - costoTotal,
+      abonos: editingVentaId ? (ventas.find((v)=>v.id===editingVentaId)?.abonos||[]) : [],
     };
-    if (editingVentaId) {
-      setVentas((p) => p.map((x) => x.id === editingVentaId ? venta : x));
-    } else {
-      setVentas((p) => [venta, ...p]);
-    }
+    setVentas((p) => editingVentaId ? p.map((x)=>x.id===editingVentaId?venta:x) : [venta,...p]);
     dbSave("ventas", venta);
     limpiarVentaForm();
   }
@@ -269,36 +254,35 @@ export default function App() {
     setEditingVentaId(v.id);
     setFormVenta({ fecha:v.fecha, cliente:v.cliente, origen:v.origen, descripcion:v.descripcion||"" });
     setVentaItems(v.items||[]);
-    if (v.pagos?.length > 0) setVentaPagos(v.pagos);
-    else if (v.cuentaId && v.formaPago === "Contado") setVentaPagos([{ id:uid(), cuentaId:v.cuentaId, monto:v.total }]);
+    if (v.pagos?.length>0) setVentaPagos(v.pagos);
+    else if (v.cuentaId&&v.formaPago==="Contado") setVentaPagos([{ id:uid(), cuentaId:v.cuentaId, monto:v.total }]);
     else setVentaPagos([]);
-    setPagina("Ventas");
-    setMobileOpen(false);
+    setPagina("Ventas"); setMobileOpen(false);
     window.scrollTo({ top:0, behavior:"smooth" });
   }
 
   function eliminarVenta(id) {
     if (!window.confirm("¿Eliminar esta venta?")) return;
-    setVentas((p) => p.filter((x) => x.id !== id));
+    setVentas((p)=>p.filter((x)=>x.id!==id));
     dbDelete("ventas", id);
-    if (editingVentaId === id) limpiarVentaForm();
+    if (editingVentaId===id) limpiarVentaForm();
   }
 
-  // ── Handlers gastos ───────────────────────────────────────────────────────
+  // ── Gastos ────────────────────────────────────────────────────────────────
   function registrarGasto() {
     const valor = Number(formGasto.valor || 0);
     if (valor <= 0) return;
     if (editingGastoId) {
       setGastos((p) => {
-        const updated = p.map((g) => g.id === editingGastoId ? { ...g, ...formGasto, valor } : g);
-        const gasto   = updated.find((g) => g.id === editingGastoId);
+        const updated = p.map((g)=>g.id===editingGastoId?{...g,...formGasto,valor}:g);
+        const gasto = updated.find((g)=>g.id===editingGastoId);
         if (gasto) dbSave("gastos", gasto);
         return updated;
       });
       setEditingGastoId(null);
     } else {
       const gasto = { id:uid(), ...formGasto, valor };
-      setGastos((p) => [gasto, ...p]);
+      setGastos((p)=>[gasto,...p]);
       dbSave("gastos", gasto);
     }
     setFormGasto({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" });
@@ -307,80 +291,94 @@ export default function App() {
   function editarGasto(g) {
     setEditingGastoId(g.id);
     setFormGasto({ fecha:g.fecha, categoria:g.categoria, valor:g.valor.toString(), descripcion:g.descripcion||"", cuentaId:g.cuentaId||"" });
-    setPagina("Gastos");
-    setMobileOpen(false);
+    setPagina("Gastos"); setMobileOpen(false);
     window.scrollTo({ top:0, behavior:"smooth" });
   }
 
   function eliminarGasto(id) {
     if (!window.confirm("¿Eliminar este gasto?")) return;
-    setGastos((p) => p.filter((g) => g.id !== id));
+    setGastos((p)=>p.filter((g)=>g.id!==id));
     dbDelete("gastos", id);
-    if (editingGastoId === id) {
-      setEditingGastoId(null);
-      setFormGasto({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" });
-    }
+    if (editingGastoId===id) { setEditingGastoId(null); setFormGasto({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" }); }
   }
 
-  // ── Handlers inversiones ──────────────────────────────────────────────────
+  // ── Inversiones ───────────────────────────────────────────────────────────
   function registrarInversion() {
     const valor = Number(formInversion.valor || 0);
-    if (valor <= 0) return;
+    if (valor<=0) return;
     const inv = { id:uid(), ...formInversion, valor };
-    setInversiones((p) => [inv, ...p]);
+    setInversiones((p)=>[inv,...p]);
     dbSave("inversiones", inv);
     setFormInversion({ fecha:today(), socio:"Raúl", valor:"", descripcion:"", cuentaId:"" });
   }
 
-  // ── Handlers cuentas ──────────────────────────────────────────────────────
+  // ── Cuentas ───────────────────────────────────────────────────────────────
   function agregarCuenta(nombre, tipo, color) {
     const cuenta = { id:uid(), nombre, tipo, saldoInicial:0, color };
-    setCuentas((p) => [...p, cuenta]);
+    setCuentas((p)=>[...p, cuenta]);
     dbSaveCu(cuenta);
   }
 
   function renombrarCuenta(id, nombre) {
     setCuentas((p) => {
-      const updated = p.map((c) => c.id === id ? { ...c, nombre } : c);
-      const cuenta  = updated.find((c) => c.id === id);
+      const updated = p.map((c)=>c.id===id?{...c,nombre}:c);
+      const cuenta  = updated.find((c)=>c.id===id);
       if (cuenta) dbSaveCu(cuenta);
       return updated;
     });
   }
 
-  // ── Transferencias entre cuentas ──────────────────────────────────────────
+  // ── Transferencias ────────────────────────────────────────────────────────
   function registrarTransferencia(tr) {
     const t = { id:uid(), ...tr };
-    setTransferencias((prev) => [t, ...prev]);
+    setTransferencias((prev)=>[t,...prev]);
     saveTransferencia(t);
   }
 
-  // ── Inventario: ajustes y conversiones ────────────────────────────────────
+  // ── Inventario ────────────────────────────────────────────────────────────
   function guardarAjuste(ajuste) {
     const record = { id:uid(), ...ajuste };
-    setAjustes((p) => [record, ...p]);
+    setAjustes((p)=>[record,...p]);
     dbSave("ajustes", record);
   }
 
   function guardarConversion(conv) {
     const record = { id:uid(), ...conv };
-    setConversiones((p) => [record, ...p]);
+    setConversiones((p)=>[record,...p]);
     dbSave("conversiones", record);
   }
 
-  // ── Cartera: abonos ───────────────────────────────────────────────────────
-  function registrarAbono(ventaId, abono) {
-    setVentas((p) =>
-      p.map((v) => {
-        if (v.id !== ventaId) return v;
-        const next = { ...v, abonos: [...(v.abonos||[]), abono] };
-        dbSave("ventas", next);
-        return next;
-      })
-    );
+  function guardarProductoExtra(prod) {
+    setProductosExtra((p)=>[...p, prod]);
+    saveProducto(prod);
+    // Also save its initial precio if provided
+    if (prod.precioVenta > 0) {
+      setPrecios((p)=>({ ...p, [prod.sku]: prod.precioVenta }));
+      savePrecio(prod.sku, prod.precioVenta);
+    }
   }
 
-  // ── Pantallas de estado ───────────────────────────────────────────────────
+  function eliminarProductoExtra(id) {
+    setProductosExtra((p)=>p.filter((x)=>x.id!==id));
+    deleteProducto(id);
+  }
+
+  function actualizarPrecio(sku, precioVenta) {
+    setPrecios((p)=>({ ...p, [sku]: precioVenta }));
+    savePrecio(sku, precioVenta);
+  }
+
+  // ── Cartera ───────────────────────────────────────────────────────────────
+  function registrarAbono(ventaId, abono) {
+    setVentas((p) => p.map((v) => {
+      if (v.id!==ventaId) return v;
+      const next = { ...v, abonos:[...(v.abonos||[]),abono] };
+      dbSave("ventas", next);
+      return next;
+    }));
+  }
+
+  // ── Loading / error screens ───────────────────────────────────────────────
   if (!dbReady) return <NoSupabase />;
 
   if (loading) {
@@ -391,12 +389,12 @@ export default function App() {
           <div style={{ color:"white", fontWeight:700, fontSize:16, marginBottom:8 }}>Estantek</div>
           <div style={{ color:"#64748b", fontSize:14 }}>Cargando datos...</div>
           <div style={{ marginTop:24, display:"flex", gap:6, justifyContent:"center" }}>
-            {[0,1,2].map((i) => (
-              <div key={i} style={{ width:8, height:8, background:"#f97316", borderRadius:"50%", animation:`pulse 1.2s ${i*0.2}s infinite` }} />
+            {[0,1,2].map((i)=>(
+              <div key={i} style={{ width:8, height:8, background:"#f97316", borderRadius:"50%", animation:`pulse 1.2s ${i*.2}s infinite` }} />
             ))}
           </div>
         </div>
-        <style>{`@keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }`}</style>
+        <style>{`@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}`}</style>
       </div>
     );
   }
@@ -406,40 +404,29 @@ export default function App() {
       <div style={{ display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh", background:"#0f172a" }}>
         <div style={{ maxWidth:440, textAlign:"center" }}>
           <div style={{ fontSize:40, marginBottom:16 }}>⚠️</div>
-          <h2 style={{ color:"white", fontWeight:800, marginBottom:12 }}>Error al conectar con Supabase</h2>
+          <h2 style={{ color:"white", fontWeight:800, marginBottom:12 }}>Error al conectar</h2>
           <p style={{ color:"#94a3b8", fontSize:14, marginBottom:20 }}>{loadError}</p>
           <button style={{ border:"none", borderRadius:10, padding:"12px 24px", background:"#f97316", color:"white", fontWeight:800, cursor:"pointer", fontSize:15 }}
-            onClick={() => window.location.reload()}>
-            Reintentar
-          </button>
+            onClick={()=>window.location.reload()}>Reintentar</button>
         </div>
       </div>
     );
   }
 
-  // ── Layout principal ──────────────────────────────────────────────────────
-  const currentNav = NAV_ITEMS.find((n) => n.id === pagina);
-
-  function navigate(id) {
-    setPagina(id);
-    setMobileOpen(false);
-  }
+  function navigate(id) { setPagina(id); setMobileOpen(false); }
+  const currentNav = NAV_ITEMS.find((n)=>n.id===pagina);
 
   return (
     <div style={appShell}>
       {/* Mobile overlay */}
       {mobileOpen && (
-        <div
-          className="sidebar-overlay active"
-          onClick={() => setMobileOpen(false)}
-          style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:150 }}
-        />
+        <div onClick={()=>setMobileOpen(false)}
+          style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:150 }} />
       )}
 
-      {/* ── Sidebar ── */}
-      <aside
-        className={`sidebar-el${mobileOpen ? " sidebar-open" : ""}`}
-        style={{ ...sidebar, ...(sidebarOpen ? {} : sidebarCollapsed) }}>
+      {/* Sidebar */}
+      <aside className={`sidebar-el${mobileOpen?" sidebar-open":""}`}
+        style={{ ...sidebar, ...(sidebarOpen?{}:sidebarCollapsed) }}>
         <div style={sidebarHeader}>
           <div style={logoBox}>E</div>
           {sidebarOpen && (
@@ -451,18 +438,16 @@ export default function App() {
         </div>
 
         <nav style={sidebarNav}>
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.map((item)=>{
             const Icon   = ICONS[item.id];
-            const active = pagina === item.id;
+            const active = pagina===item.id;
             return (
-              <button key={item.id}
-                style={{ ...navItem, ...(active ? navItemActive : {}) }}
-                onClick={() => navigate(item.id)}
-                title={!sidebarOpen ? item.label : ""}>
-                <span style={{ display:"flex", alignItems:"center", flexShrink:0, color: active ? "#f97316" : "#64748b" }}>
+              <button key={item.id} style={{ ...navItem, ...(active?navItemActive:{}) }}
+                onClick={()=>navigate(item.id)} title={!sidebarOpen?item.label:""}>
+                <span style={{ display:"flex", alignItems:"center", flexShrink:0, color:active?"#f97316":"#64748b" }}>
                   {Icon && <Icon />}
                 </span>
-                {sidebarOpen && <span style={{ color: active ? "white" : "#94a3b8", fontWeight: active ? 700 : 500 }}>{item.label}</span>}
+                {sidebarOpen && <span style={{ color:active?"white":"#94a3b8", fontWeight:active?700:500 }}>{item.label}</span>}
                 {active && sidebarOpen && <div style={navDot} />}
               </button>
             );
@@ -474,40 +459,30 @@ export default function App() {
             <div style={{ marginBottom:12 }}>
               <div style={dbBadge}>
                 <div style={{ width:6, height:6, borderRadius:"50%", background:"#10b981" }} />
-                <span>Supabase</span>
+                <span>Supabase conectado</span>
               </div>
             </div>
           )}
-          <button style={collapseBtn} onClick={() => setSidebarOpen((p) => !p)} title={sidebarOpen ? "Colapsar" : "Expandir"}>
+          <button style={collapseBtn} onClick={()=>setSidebarOpen((p)=>!p)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round">
-              {sidebarOpen
-                ? <polyline points="15 18 9 12 15 6"/>
-                : <polyline points="9 18 15 12 9 6"/>}
+              {sidebarOpen ? <polyline points="15 18 9 12 15 6"/> : <polyline points="9 18 15 12 9 6"/>}
             </svg>
           </button>
         </div>
       </aside>
 
-      {/* ── Main ── */}
-      <div className="main-area-el" style={{ ...mainArea, marginLeft: sidebarOpen ? 240 : 68 }}>
+      {/* Main */}
+      <div className="main-area-el" style={{ ...mainArea, marginLeft: sidebarOpen?240:68 }}>
         <header style={topbar} className="topbar-inner">
-          {/* Hamburger — only visible on mobile via CSS */}
-          <button
-            className="hamburger-btn"
+          <button className="hamburger-btn"
             style={{ border:"none", background:"transparent", color:"#475569", cursor:"pointer", padding:"6px 8px", borderRadius:8, fontSize:20, lineHeight:1 }}
-            onClick={() => setMobileOpen((p) => !p)}
-            aria-label="Menú">
-            ☰
-          </button>
-
-          <div>
-            <div style={topbarTitle}>{currentNav?.label || pagina}</div>
+            onClick={()=>setMobileOpen((p)=>!p)}>☰</button>
+          <div style={{ flex:1 }}>
+            <div style={topbarTitle}>{currentNav?.label||pagina}</div>
             <div style={topbarDate}>
-              {new Date().toLocaleDateString("es-CO", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
+              {new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
             </div>
           </div>
-
-          {/* Supabase badge — desktop only */}
           <div className="hide-mobile" style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#94a3b8", background:"#f8fafc", borderRadius:8, padding:"6px 12px", border:"1px solid #e2e8f0" }}>
             <div style={{ width:7, height:7, borderRadius:"50%", background:"#10b981" }} />
             Supabase activo
@@ -515,23 +490,22 @@ export default function App() {
         </header>
 
         <main style={pageContent} className="page-content-inner">
-          {pagina === "Dashboard"    && (
-            <Dashboard
-              compras={compras} ventas={ventas} gastos={gastos}
-              inversiones={inversiones} catalogo={catalogo}
-            />
-          )}
-          {pagina === "Inventario"   && (
+          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} />}
+          {pagina==="Inventario"   && (
             <Inventario
               catalogo={catalogo}
               compras={compras}
               ajustes={ajustes}
               conversiones={conversiones}
+              productosExtra={productosExtra}
               onAjuste={guardarAjuste}
               onConversion={guardarConversion}
+              onSaveProducto={guardarProductoExtra}
+              onDeleteProducto={eliminarProductoExtra}
+              onUpdatePrecio={actualizarPrecio}
             />
           )}
-          {pagina === "Compras"      && (
+          {pagina==="Compras"      && (
             <Compras
               compras={compras} catalogo={catalogo} cuentas={cuentas}
               editingId={editingCompraId} setEditingId={setEditingCompraId}
@@ -543,7 +517,7 @@ export default function App() {
               onSave={guardarCompra} onEdit={editarCompra} onDelete={eliminarCompra} onCancel={limpiarCompraForm}
             />
           )}
-          {pagina === "Ventas"       && (
+          {pagina==="Ventas"       && (
             <Ventas
               ventas={ventas} catalogo={catalogo} cuentas={cuentas}
               editingId={editingVentaId}
@@ -555,7 +529,7 @@ export default function App() {
               onSave={guardarVenta} onEdit={editarVenta} onDelete={eliminarVenta} onCancel={limpiarVentaForm}
             />
           )}
-          {pagina === "Caja"         && (
+          {pagina==="Caja"         && (
             <Caja
               cuentas={cuentas}
               compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones}
@@ -565,32 +539,30 @@ export default function App() {
               onRenameCuenta={renombrarCuenta}
             />
           )}
-          {pagina === "Cartera"      && (
+          {pagina==="Cartera"      && (
             <Cartera
               ventas={ventas} compras={compras} cuentas={cuentas}
               onAbono={registrarAbono}
               onPagarProveedor={pagarProveedor}
             />
           )}
-          {pagina === "Gastos"       && (
+          {pagina==="Gastos"       && (
             <Gastos
               gastos={gastos} cuentas={cuentas}
               form={formGasto} setForm={setFormGasto}
               editingId={editingGastoId}
               onSave={registrarGasto} onDelete={eliminarGasto} onEdit={editarGasto}
-              onCancel={() => { setEditingGastoId(null); setFormGasto({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" }); }}
+              onCancel={()=>{ setEditingGastoId(null); setFormGasto({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" }); }}
             />
           )}
-          {pagina === "Inversiones"  && (
+          {pagina==="Inversiones"  && (
             <Inversiones
               inversiones={inversiones} cuentas={cuentas}
               form={formInversion} setForm={setFormInversion}
               onSave={registrarInversion}
             />
           )}
-          {pagina === "Rentabilidad" && (
-            <Rentabilidad ventas={ventas} compras={compras} gastos={gastos} />
-          )}
+          {pagina==="Rentabilidad" && <Rentabilidad ventas={ventas} compras={compras} gastos={gastos} />}
         </main>
       </div>
     </div>
@@ -598,62 +570,22 @@ export default function App() {
 }
 
 // ─── Layout styles ────────────────────────────────────────────────────────────
-const appShell = { display:"flex", minHeight:"100vh", background:"#f1f5f9" };
-
-const sidebar = {
-  width:240, flexShrink:0, background:"#0f172a",
-  position:"fixed", top:0, left:0, height:"100vh",
-  display:"flex", flexDirection:"column",
-  transition:"width .2s ease",
-  zIndex:200,
-  boxShadow:"4px 0 24px rgba(0,0,0,.15)",
-};
+const appShell   = { display:"flex", minHeight:"100vh", background:"#f1f5f9" };
+const sidebar    = { width:240, flexShrink:0, background:"#0f172a", position:"fixed", top:0, left:0, height:"100vh", display:"flex", flexDirection:"column", transition:"width .2s ease", zIndex:200, boxShadow:"4px 0 24px rgba(0,0,0,.15)" };
 const sidebarCollapsed = { width:68 };
-
-const sidebarHeader = {
-  padding:"20px 16px", display:"flex", alignItems:"center", gap:12,
-  borderBottom:"1px solid rgba(255,255,255,.06)", flexShrink:0,
-};
-const logoBox = {
-  width:36, height:36, background:"linear-gradient(135deg,#f97316,#ea580c)",
-  borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center",
-  fontWeight:900, fontSize:16, color:"white", flexShrink:0,
-  boxShadow:"0 4px 12px rgba(249,115,22,.4)",
-};
-const logoTitle = { fontWeight:800, fontSize:14, color:"white", lineHeight:1.2 };
-const logoSub   = { fontSize:11, color:"#475569", lineHeight:1.3, marginTop:2 };
-
-const sidebarNav = { flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2, overflowY:"auto" };
-
-const navItem = {
-  display:"flex", alignItems:"center", gap:12, padding:"10px 12px",
-  border:"none", background:"transparent", borderRadius:10, cursor:"pointer",
-  width:"100%", textAlign:"left", fontSize:13, transition:"background .15s",
-};
-const navItemActive = { background:"rgba(249,115,22,.12)" };
-const navDot        = { width:6, height:6, borderRadius:"50%", background:"#f97316", marginLeft:"auto" };
-
-const sidebarFooter = {
-  padding:"12px 10px 16px", borderTop:"1px solid rgba(255,255,255,.06)", flexShrink:0,
-  display:"flex", flexDirection:"column",
-};
-const dbBadge = {
-  display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#64748b",
-  background:"rgba(255,255,255,.05)", borderRadius:8, padding:"6px 10px",
-};
-const collapseBtn = {
-  border:"1px solid rgba(255,255,255,.08)", background:"rgba(255,255,255,.04)",
-  borderRadius:8, padding:"7px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
-};
-
-const mainArea = { flex:1, display:"flex", flexDirection:"column", transition:"margin-left .2s ease", minWidth:0 };
-
-const topbar = {
-  background:"white", padding:"16px 28px", display:"flex", alignItems:"center",
-  gap:16, borderBottom:"1px solid #e2e8f0",
-  boxShadow:"0 1px 3px rgba(15,23,42,.04)", position:"sticky", top:0, zIndex:100,
-};
-const topbarTitle = { fontWeight:800, fontSize:20, color:"#0f172a" };
-const topbarDate  = { fontSize:12, color:"#94a3b8", marginTop:2 };
-
-const pageContent = { flex:1, padding:"28px 32px", maxWidth:1400 };
+const sidebarHeader    = { padding:"20px 16px", display:"flex", alignItems:"center", gap:12, borderBottom:"1px solid rgba(255,255,255,.06)", flexShrink:0 };
+const logoBox          = { width:36, height:36, background:"linear-gradient(135deg,#f97316,#ea580c)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:16, color:"white", flexShrink:0, boxShadow:"0 4px 12px rgba(249,115,22,.4)" };
+const logoTitle        = { fontWeight:800, fontSize:14, color:"white", lineHeight:1.2 };
+const logoSub          = { fontSize:11, color:"#475569", lineHeight:1.3, marginTop:2 };
+const sidebarNav       = { flex:1, padding:"12px 10px", display:"flex", flexDirection:"column", gap:2, overflowY:"auto" };
+const navItem          = { display:"flex", alignItems:"center", gap:12, padding:"10px 12px", border:"none", background:"transparent", borderRadius:10, cursor:"pointer", width:"100%", textAlign:"left", fontSize:13, transition:"background .15s" };
+const navItemActive    = { background:"rgba(249,115,22,.12)" };
+const navDot           = { width:6, height:6, borderRadius:"50%", background:"#f97316", marginLeft:"auto" };
+const sidebarFooter    = { padding:"12px 10px 16px", borderTop:"1px solid rgba(255,255,255,.06)", flexShrink:0, display:"flex", flexDirection:"column" };
+const dbBadge          = { display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#64748b", background:"rgba(255,255,255,.05)", borderRadius:8, padding:"6px 10px" };
+const collapseBtn      = { border:"1px solid rgba(255,255,255,.08)", background:"rgba(255,255,255,.04)", borderRadius:8, padding:"7px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" };
+const mainArea         = { flex:1, display:"flex", flexDirection:"column", transition:"margin-left .2s ease", minWidth:0 };
+const topbar           = { background:"white", padding:"16px 28px", display:"flex", alignItems:"center", gap:16, borderBottom:"1px solid #e2e8f0", boxShadow:"0 1px 3px rgba(15,23,42,.04)", position:"sticky", top:0, zIndex:100 };
+const topbarTitle      = { fontWeight:800, fontSize:20, color:"#0f172a" };
+const topbarDate       = { fontSize:12, color:"#94a3b8", marginTop:2 };
+const pageContent      = { flex:1, padding:"28px 32px", maxWidth:1400 };

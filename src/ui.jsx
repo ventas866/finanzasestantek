@@ -2,7 +2,7 @@ import { ORIGEN_COLORS, CATEGORIA_COLORS } from "./constants.js";
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
-export function Panel({ title, titleRight, children, flush = false }) {
+export function Panel({ title, titleRight, children, flush = false, noPad = false }) {
   return (
     <div style={s.panel}>
       {title && (
@@ -11,7 +11,7 @@ export function Panel({ title, titleRight, children, flush = false }) {
           {titleRight && <div>{titleRight}</div>}
         </div>
       )}
-      <div style={flush ? {} : {}}>{children}</div>
+      <div style={noPad ? { padding:0 } : {}}>{children}</div>
     </div>
   );
 }

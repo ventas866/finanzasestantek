@@ -15,15 +15,26 @@ export const supabase = dbReady ? createClient(URL, KEY) : null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Carga todos los registros de una tabla como objetos JS */
+/**
+ * Carga todos los registros de una tabla como objetos JS.
+ * Retorna [] si la tabla no existe o hay un error (resiliente).
+ */
 export async function fetchTable(table) {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { data, error } = await supabase
-    .from(table)
-    .select("data")
-    .order("fecha", { ascending: false, nullsFirst: false });
-  if (error) throw error;
-  return data.map((r) => r.data);
+  try {
+    const { data, error } = await supabase
+      .from(table)
+      .select("data")
+      .order("fecha", { ascending: false, nullsFirst: false });
+    if (error) {
+      console.warn(`fetchTable(${table}): ${error.message}`);
+      return [];
+    }
+    return data.map((r) => r.data);
+  } catch (e) {
+    console.warn(`fetchTable(${table}) exception:`, e);
+    return [];
+  }
 }
 
 /** Guarda o actualiza un registro (upsert) */
@@ -64,9 +75,17 @@ export async function fetchCuentas() {
 /** Para transferencias (sin fecha en row, se guarda en data) */
 export async function fetchTransferencias() {
   if (!supabase) throw new Error("Supabase no configurado");
-  const { data, error } = await supabase.from("transferencias").select("data");
-  if (error) throw error;
-  return data.map((r) => r.data);
+  try {
+    const { data, error } = await supabase.from("transferencias").select("data");
+    if (error) {
+      console.warn("fetchTransferencias:", error.message);
+      return [];
+    }
+    return data.map((r) => r.data);
+  } catch (e) {
+    console.warn("fetchTransferencias exception:", e);
+    return [];
+  }
 }
 
 export async function saveTransferencia(tr) {

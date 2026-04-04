@@ -1,11 +1,16 @@
 import { money } from "../utils.js";
 import {
   Panel, SectionHeader, FormGrid, Field, inputStyle, selectStyle,
-  DarkBtn, DeleteBtn, EmptyState, s,
+  DarkBtn, DeleteBtn, EditBtn, EmptyState, Alert, CancelBtn, s,
 } from "../ui.jsx";
 import { GASTO_CATEGORIAS } from "../constants.js";
 
-export default function Gastos({ gastos, cuentas, form, setForm, onSave, onDelete }) {
+export default function Gastos({
+  gastos, cuentas,
+  form, setForm,
+  editingId,
+  onSave, onDelete, onEdit, onCancel,
+}) {
   const totalGastos = gastos.reduce((a, g) => a + g.valor, 0);
   const porCategoria = gastos.reduce((acc, g) => {
     acc[g.categoria] = (acc[g.categoria] || 0) + g.valor;
@@ -17,7 +22,11 @@ export default function Gastos({ gastos, cuentas, form, setForm, onSave, onDelet
       <SectionHeader title="Gastos" subtitle={`Total registrado: ${money(totalGastos)} · ${gastos.length} registros`} />
 
       <div style={pageGrid}>
-        <Panel title="Registrar gasto">
+        <Panel title={editingId ? "✎ Editar gasto" : "Registrar gasto"}>
+          {editingId && (
+            <Alert type="info" text="Editando gasto. Modifica los campos y guarda los cambios." />
+          )}
+          {editingId && <div style={{ height:12 }} />}
           <FormGrid>
             <Field label="Fecha">
               <input type="date" style={inputStyle} value={form.fecha}
@@ -45,8 +54,9 @@ export default function Gastos({ gastos, cuentas, form, setForm, onSave, onDelet
                 onChange={(e) => setForm({ ...form, descripcion: e.target.value })} />
             </Field>
           </FormGrid>
-          <div style={{ marginTop:16 }}>
-            <DarkBtn onClick={onSave}>Registrar gasto</DarkBtn>
+          <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:10 }}>
+            <DarkBtn onClick={onSave}>{editingId ? "Guardar cambios" : "Registrar gasto"}</DarkBtn>
+            {editingId && <CancelBtn onClick={onCancel}>Cancelar edición</CancelBtn>}
           </div>
         </Panel>
 
@@ -78,7 +88,7 @@ export default function Gastos({ gastos, cuentas, form, setForm, onSave, onDelet
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                 {gastos.map((item) => (
-                  <div key={item.id} style={s.histCard}>
+                  <div key={item.id} style={{ ...s.histCard, ...(item.id === editingId ? { border:"1.5px solid #f97316" } : {}) }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                       <div>
                         <div style={{ fontWeight:700 }}>{item.categoria}</div>
@@ -88,8 +98,9 @@ export default function Gastos({ gastos, cuentas, form, setForm, onSave, onDelet
                         </div>
                         {item.descripcion && <div style={{ fontSize:13, color:"#64748b", marginTop:4 }}>{item.descripcion}</div>}
                       </div>
-                      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                         <span style={{ fontWeight:900, fontSize:18, color:"#dc2626" }}>{money(item.valor)}</span>
+                        <EditBtn onClick={() => onEdit(item)} />
                         <DeleteBtn onClick={() => onDelete(item.id)} />
                       </div>
                     </div>

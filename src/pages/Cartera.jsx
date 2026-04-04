@@ -7,33 +7,62 @@ import {
 
 /**
  * Módulo Cartera:
- *  - Cuentas por cobrar: ventas a crédito con saldo pendiente
- *  - Cuentas por pagar: compras a crédito pendientes
- *  - Registro de abonos a ventas a crédito
+ *  - Cuentas por cobrar: ventas con crédito pendiente (cobros parciales o totales)
+ *  - Cuentas por pagar: compras con crédito pendiente (pagos parciales o totales a proveedores)
  */
 export default function Cartera({
-  ventas, setVentas,
-  compras,
-  cuentas,
+  ventas, compras, cuentas,
+  onAbono,
+  onPagarProveedor,
 }) {
-  const [abonoForm, setAbonoForm] = useState({ ventaId:"", valor:"", fecha: today(), cuentaId:"", nota:"" });
-  const [showAbonoFor, setShowAbonoFor] = useState(null); // ventaId
+  const [abonoForm, setAbonoForm]       = useState({ ventaId:"", valor:"", fecha:today(), cuentaId:"", nota:"" });
+  const [showAbonoFor, setShowAbonoFor] = useState(null);
+  const [pagProvForm, setPagProvForm]   = useState({ compraId:"", monto:"", fecha:today(), cuentaId:"", nota:"" });
+  const [showPagFor, setShowPagFor]     = useState(null);
+
+  // Helper: crédito original de una venta (total − anticipo pagado al momento de la venta)
+  function creditoBaseVenta(v) {
+    if (v.pagos?.length > 0) {
+      const sum = v.pagos.reduce((a, p) => a + p.monto, 0);
+      return Math.max(0, v.total - sum);
+    }
+    if (v.formaPago === "Crédito" || v.formaPago === "Mixto") return v.total;
+    return 0;
+  }
+
+  // Helper: crédito original de una compra
+  function creditoBaseCompra(c) {
+    if (c.pagos?.length > 0) {
+      const sum = c.pagos.reduce((a, p) => a + p.monto, 0);
+      return Math.max(0, c.total - sum);
+    }
+    if (c.formaPago === "Crédito" || c.formaPago === "Mixto") return c.total;
+    return 0;
+  }
 
   const cuentasPorCobrar = useMemo(() => {
     return ventas
-      .filter((v) => v.formaPago === "Crédito")
       .map((v) => {
+        const creditoBase = creditoBaseVenta(v);
+        if (creditoBase <= 0) return null;
         const abonado   = (v.abonos || []).reduce((a, x) => a + x.valor, 0);
-        const pendiente = Math.max(0, v.total - abonado);
-        return { ...v, abonado, pendiente, saldado: pendiente === 0 };
+        const pendiente = Math.max(0, creditoBase - abonado);
+        return { ...v, creditoBase, abonado, pendiente, saldado: pendiente === 0 };
       })
+      .filter(Boolean)
       .sort((a, b) => b.pendiente - a.pendiente);
   }, [ventas]);
 
   const cuentasPorPagar = useMemo(() => {
     return compras
-      .filter((c) => c.formaPago === "Crédito")
-      .map((c) => ({ ...c, pendiente: c.total })) // en MVP: sin pagos parciales a compras
+      .map((c) => {
+        const creditoBase = creditoBaseCompra(c);
+        if (creditoBase <= 0) return null;
+        const pagado    = (c.pagosProv || []).reduce((a, p) => a + p.monto, 0);
+        const pendiente = Math.max(0, creditoBase - pagado);
+        return { ...c, creditoBase, pagado, pendiente, saldado: pendiente === 0 };
+      })
+      .filter(Boolean)
       .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   }, [compras]);
 
@@ -43,18 +72,20 @@ export default function Cartera({
   function registrarAbono() {
     const valor = Number(abonoForm.valor || 0);
     if (!abonoForm.ventaId || valor <= 0) return;
-
-    setVentas((prev) => prev.map((v) => {
-      if (v.id !== abonoForm.ventaId) return v;
-      const abonos = [...(v.abonos || []), {
-        id: uid(), fecha: abonoForm.fecha, valor, cuentaId: abonoForm.cuentaId, nota: abonoForm.nota,
-      }];
-      const abonado = abonos.reduce((a, x) => a + x.valor, 0);
-      return { ...v, abonos };
-    }));
-
-    setAbonoForm({ ventaId:"", valor:"", fecha: today(), cuentaId:"", nota:"" });
+    const abono = { id:uid(), fecha:abonoForm.fecha, valor, cuentaId:abonoForm.cuentaId, nota:abonoForm.nota };
+    onAbono(abonoForm.ventaId, abono);
+    setAbonoForm({ ventaId:"", valor:"", fecha:today(), cuentaId:"", nota:"" });
     setShowAbonoFor(null);
+  }
+
+  function registrarPagProv() {
+    const monto = Number(pagProvForm.monto || 0);
+    if (!pagProvForm.compraId || monto <= 0) return;
+    onPagarProveedor(pagProvForm.compraId, {
+      fecha: pagProvForm.fecha, monto, cuentaId: pagProvForm.cuentaId, nota: pagProvForm.nota,
+    });
+    setPagProvForm({ compraId:"", monto:"", fecha:today(), cuentaId:"", nota:"" });
+    setShowPagFor(null);
   }
 
   return (
@@ -69,14 +100,14 @@ export default function Cartera({
         <KpiCard
           label="Por cobrar"
           value={money(totalPorCobrar)}
-          sub={`${cuentasPorCobrar.filter((v) => !v.saldado).length} ventas pendientes`}
+          sub={`${cuentasPorCobrar.filter((v) => !v.saldado).length} clientes pendientes`}
           accent={totalPorCobrar > 0 ? "#f59e0b" : "#10b981"}
           highlight={totalPorCobrar > 0 ? undefined : "positive"}
         />
         <KpiCard
           label="Por pagar"
           value={money(totalPorPagar)}
-          sub={`${cuentasPorPagar.length} compras a crédito`}
+          sub={`${cuentasPorPagar.filter((c) => !c.saldado).length} proveedores pendientes`}
           accent={totalPorPagar > 0 ? "#ef4444" : "#10b981"}
           highlight={totalPorPagar > 0 ? "negative" : "positive"}
         />
@@ -89,20 +120,32 @@ export default function Cartera({
         />
       </div>
 
-      {/* Cuentas por cobrar */}
-      <Panel title="Cuentas por cobrar">
+      {/* ── Cuentas por cobrar ── */}
+      <Panel title="Cuentas por cobrar (clientes)">
         {cuentasPorCobrar.length === 0 ? (
-          <EmptyState icon="📥" text="No hay ventas a crédito registradas." />
+          <EmptyState icon="📥" text="No hay ventas a crédito o mixtas con saldo pendiente." />
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             {cuentasPorCobrar.map((v) => (
               <div key={v.id} style={{ border:"1px solid #e2e8f0", borderRadius:12, padding:"14px 16px" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
-                  <div>
+                  <div style={{ flex:1 }}>
                     <div style={{ fontWeight:800, fontSize:15 }}>{v.cliente}</div>
                     <div style={{ fontSize:13, color:"#94a3b8" }}>{v.fecha} · {v.origen}</div>
                     {v.descripcion && <div style={{ fontSize:13, color:"#64748b", marginTop:4 }}>{v.descripcion}</div>}
-                    {/* Abonos */}
+
+                    {/* Pagos iniciales (anticipo) */}
+                    {(v.pagos||[]).length > 0 && (
+                      <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:6 }}>
+                        {v.pagos.map((p,i) => (
+                          <span key={i} style={{ fontSize:12, background:"#d1fae5", color:"#065f46", borderRadius:6, padding:"2px 8px", fontWeight:600 }}>
+                            Anticipo: {cuentas.find(c=>c.id===p.cuentaId)?.nombre} {money(p.monto)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Abonos posteriores */}
                     {(v.abonos || []).length > 0 && (
                       <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
                         {v.abonos.map((ab) => (
@@ -116,7 +159,10 @@ export default function Cartera({
                     )}
                   </div>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontSize:12, color:"#94a3b8" }}>Total: {money(v.total)}</div>
+                    <div style={{ fontSize:12, color:"#94a3b8" }}>Total venta: {money(v.total)}</div>
+                    {v.creditoBase < v.total && (
+                      <div style={{ fontSize:12, color:"#64748b" }}>Anticipo: {money(v.total - v.creditoBase)}</div>
+                    )}
                     <div style={{ fontSize:12, color:"#64748b" }}>Abonado: {money(v.abonado)}</div>
                     <div style={{ fontWeight:900, fontSize:18, color: v.saldado ? "#059669" : "#f59e0b" }}>
                       {v.saldado ? "✓ Saldado" : money(v.pendiente)}
@@ -128,13 +174,13 @@ export default function Cartera({
                   <div style={{ marginTop:12 }}>
                     {showAbonoFor === v.id ? (
                       <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"12px 14px" }}>
-                        <div style={{ fontSize:12, fontWeight:700, color:"#94a3b8", marginBottom:10, textTransform:"uppercase", letterSpacing:"0.08em" }}>Registrar abono</div>
+                        <div style={{ fontSize:12, fontWeight:700, color:"#94a3b8", marginBottom:10, textTransform:"uppercase", letterSpacing:"0.08em" }}>Registrar cobro / abono</div>
                         <FormGrid>
                           <Field label="Fecha">
                             <input type="date" style={inputStyle} value={abonoForm.fecha}
                               onChange={(e) => setAbonoForm({ ...abonoForm, fecha: e.target.value })} />
                           </Field>
-                          <Field label="Monto abonado" hint={`Pendiente: ${money(v.pendiente)}`}>
+                          <Field label="Monto" hint={`Pendiente: ${money(v.pendiente)}`}>
                             <input type="number" style={inputStyle} value={abonoForm.valor}
                               onChange={(e) => setAbonoForm({ ...abonoForm, valor: e.target.value })} />
                           </Field>
@@ -153,7 +199,7 @@ export default function Cartera({
                         <div style={{ display:"flex", gap:8, marginTop:12 }}>
                           <button style={{ border:"none", borderRadius:8, padding:"9px 16px", background:"#10b981", color:"white", fontWeight:700, cursor:"pointer", fontSize:13 }}
                             onClick={registrarAbono}>
-                            Registrar abono
+                            Registrar cobro
                           </button>
                           <button style={{ border:"1px solid #e2e8f0", borderRadius:8, padding:"9px 16px", background:"white", color:"#475569", fontWeight:700, cursor:"pointer", fontSize:13 }}
                             onClick={() => setShowAbonoFor(null)}>Cancelar</button>
@@ -161,8 +207,11 @@ export default function Cartera({
                       </div>
                     ) : (
                       <button style={{ border:"1px dashed #f59e0b", background:"#fffbeb", color:"#92400e", borderRadius:8, padding:"8px 16px", fontWeight:700, cursor:"pointer", fontSize:13 }}
-                        onClick={() => { setShowAbonoFor(v.id); setAbonoForm({ ventaId: v.id, valor:"", fecha: today(), cuentaId:"", nota:"" }); }}>
-                        + Registrar abono
+                        onClick={() => {
+                          setShowAbonoFor(v.id);
+                          setAbonoForm({ ventaId: v.id, valor:"", fecha:today(), cuentaId:"", nota:"" });
+                        }}>
+                        + Registrar cobro / abono
                       </button>
                     )}
                   </div>
@@ -173,21 +222,105 @@ export default function Cartera({
         )}
       </Panel>
 
-      {/* Cuentas por pagar */}
-      <Panel title="Cuentas por pagar (compras a crédito)">
+      {/* ── Cuentas por pagar ── */}
+      <Panel title="Cuentas por pagar (proveedores)">
         {cuentasPorPagar.length === 0 ? (
-          <EmptyState icon="📤" text="No hay compras a crédito pendientes." />
+          <EmptyState icon="📤" text="No hay compras a crédito o mixtas con saldo pendiente." />
         ) : (
-          <DataTable
-            headers={["Fecha","Proveedor","Ítems","Total","Estado"]}
-            rows={cuentasPorPagar.map((c) => [
-              c.fecha,
-              <span style={{ fontWeight:700 }}>{c.proveedor}</span>,
-              `${(c.items||[]).length} ítems`,
-              <span style={{ fontWeight:900, color:"#dc2626" }}>{money(c.total)}</span>,
-              <span style={{ fontSize:12, fontWeight:700, color:"#92400e", background:"#fef3c7", borderRadius:6, padding:"3px 8px" }}>Pendiente</span>,
-            ])}
-          />
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {cuentasPorPagar.map((c) => (
+              <div key={c.id} style={{ border:"1px solid #e2e8f0", borderRadius:12, padding:"14px 16px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:15 }}>{c.proveedor}</div>
+                    <div style={{ fontSize:13, color:"#94a3b8" }}>{c.fecha}</div>
+                    {c.descripcion && <div style={{ fontSize:13, color:"#64748b", marginTop:4 }}>{c.descripcion}</div>}
+
+                    {/* Pagos iniciales (abono al comprar) */}
+                    {(c.pagos||[]).length > 0 && (
+                      <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:6 }}>
+                        {c.pagos.map((p,i) => (
+                          <span key={i} style={{ fontSize:12, background:"#fee2e2", color:"#991b1b", borderRadius:6, padding:"2px 8px", fontWeight:600 }}>
+                            Anticipo: {cuentas.find(cu=>cu.id===p.cuentaId)?.nombre} {money(p.monto)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Pagos posteriores al proveedor */}
+                    {(c.pagosProv || []).length > 0 && (
+                      <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
+                        {c.pagosProv.map((p) => (
+                          <div key={p.id} style={{ fontSize:12, color:"#64748b" }}>
+                            ✓ Pago {p.fecha}: {money(p.monto)}
+                            {p.cuentaId && ` → ${cuentas.find(cu=>cu.id===p.cuentaId)?.nombre}`}
+                            {p.nota && ` · ${p.nota}`}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:12, color:"#94a3b8" }}>Total compra: {money(c.total)}</div>
+                    {c.creditoBase < c.total && (
+                      <div style={{ fontSize:12, color:"#64748b" }}>Anticipo: {money(c.total - c.creditoBase)}</div>
+                    )}
+                    <div style={{ fontSize:12, color:"#64748b" }}>Pagado: {money(c.pagado)}</div>
+                    <div style={{ fontWeight:900, fontSize:18, color: c.saldado ? "#059669" : "#dc2626" }}>
+                      {c.saldado ? "✓ Pagado" : money(c.pendiente)}
+                    </div>
+                  </div>
+                </div>
+
+                {!c.saldado && (
+                  <div style={{ marginTop:12 }}>
+                    {showPagFor === c.id ? (
+                      <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"12px 14px" }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:"#94a3b8", marginBottom:10, textTransform:"uppercase", letterSpacing:"0.08em" }}>Registrar pago al proveedor</div>
+                        <FormGrid>
+                          <Field label="Fecha">
+                            <input type="date" style={inputStyle} value={pagProvForm.fecha}
+                              onChange={(e) => setPagProvForm({ ...pagProvForm, fecha: e.target.value })} />
+                          </Field>
+                          <Field label="Monto" hint={`Pendiente: ${money(c.pendiente)}`}>
+                            <input type="number" style={inputStyle} value={pagProvForm.monto}
+                              onChange={(e) => setPagProvForm({ ...pagProvForm, monto: e.target.value })} />
+                          </Field>
+                          <Field label="Cuenta de pago">
+                            <select style={selectStyle} value={pagProvForm.cuentaId}
+                              onChange={(e) => setPagProvForm({ ...pagProvForm, cuentaId: e.target.value })}>
+                              <option value="">— Sin cuenta —</option>
+                              {cuentas.map((cu) => <option key={cu.id} value={cu.id}>{cu.nombre}</option>)}
+                            </select>
+                          </Field>
+                          <Field label="Nota">
+                            <input style={inputStyle} placeholder="Opcional" value={pagProvForm.nota}
+                              onChange={(e) => setPagProvForm({ ...pagProvForm, nota: e.target.value })} />
+                          </Field>
+                        </FormGrid>
+                        <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                          <button style={{ border:"none", borderRadius:8, padding:"9px 16px", background:"#dc2626", color:"white", fontWeight:700, cursor:"pointer", fontSize:13 }}
+                            onClick={registrarPagProv}>
+                            Registrar pago
+                          </button>
+                          <button style={{ border:"1px solid #e2e8f0", borderRadius:8, padding:"9px 16px", background:"white", color:"#475569", fontWeight:700, cursor:"pointer", fontSize:13 }}
+                            onClick={() => setShowPagFor(null)}>Cancelar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button style={{ border:"1px dashed #ef4444", background:"#fef2f2", color:"#dc2626", borderRadius:8, padding:"8px 16px", fontWeight:700, cursor:"pointer", fontSize:13 }}
+                        onClick={() => {
+                          setShowPagFor(c.id);
+                          setPagProvForm({ compraId: c.id, monto:"", fecha:today(), cuentaId:"", nota:"" });
+                        }}>
+                        + Registrar pago al proveedor
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </Panel>
     </div>

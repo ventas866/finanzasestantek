@@ -67,6 +67,77 @@ export const inputStyle = {
 
 export const selectStyle = { ...inputStyle, cursor:"pointer" };
 
+// ─── Pagos builder (multi-account payments) ───────────────────────────────────
+
+export function PagosBuilder({ total, pagos, setPagos, pagoLinea, setPagoLinea, cuentas, labelCredito = "crédito (por pagar/cobrar)" }) {
+  const sumPagos = pagos.reduce((a, p) => a + p.monto, 0);
+  const remainder = Math.max(0, total - sumPagos);
+
+  function addPago() {
+    const monto = Number(pagoLinea.monto || 0);
+    if (!pagoLinea.cuentaId || monto <= 0) return;
+    const capped = Math.min(monto, remainder > 0 ? remainder : monto);
+    setPagos(prev => [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2,6)}`, cuentaId: pagoLinea.cuentaId, monto: capped }]);
+    setPagoLinea({ cuentaId: "", monto: "" });
+  }
+
+  function removePago(id) {
+    setPagos(prev => prev.filter(p => p.id !== id));
+  }
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      {/* Resumen */}
+      <div style={{ display:"flex", gap:16, fontSize:13, flexWrap:"wrap" }}>
+        <span style={{ color:"#475569" }}>Total: <strong>{total.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0})}</strong></span>
+        <span style={{ color:"#059669" }}>Asignado: <strong>{sumPagos.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0})}</strong></span>
+        {remainder > 0 && (
+          <span style={{ color:"#f59e0b", fontWeight:700 }}>
+            {remainder.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0})} → {labelCredito}
+          </span>
+        )}
+        {remainder === 0 && total > 0 && (
+          <span style={{ color:"#10b981", fontWeight:700 }}>✓ Pago completo (Contado)</span>
+        )}
+      </div>
+
+      {/* Pagos existentes */}
+      {pagos.map((p) => {
+        const cuenta = cuentas.find(c => c.id === p.cuentaId);
+        return (
+          <div key={p.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:8, padding:"8px 12px" }}>
+            <span style={{ fontWeight:700, color:"#065f46", fontSize:13 }}>{cuenta?.nombre || "—"}</span>
+            <span style={{ fontWeight:900, fontSize:14 }}>{p.monto.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0})}</span>
+            <button style={{ border:"none", background:"#fef2f2", color:"#dc2626", borderRadius:6, padding:"4px 8px", cursor:"pointer", fontWeight:700, fontSize:12 }} onClick={() => removePago(p.id)}>✕</button>
+          </div>
+        );
+      })}
+
+      {/* Agregar pago */}
+      {(remainder > 0 || pagos.length === 0) && (
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <select style={{ ...selectStyle, flex:2 }} value={pagoLinea.cuentaId}
+            onChange={e => setPagoLinea({ ...pagoLinea, cuentaId: e.target.value })}>
+            <option value="">— Cuenta —</option>
+            {cuentas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <input type="number" style={{ ...inputStyle, flex:1 }} placeholder={remainder > 0 ? remainder.toString() : "Monto"}
+            value={pagoLinea.monto}
+            onChange={e => setPagoLinea({ ...pagoLinea, monto: e.target.value })} />
+          <button style={{ border:"none", borderRadius:8, padding:"10px 14px", background:"#0f172a", color:"white", fontWeight:700, cursor:"pointer", fontSize:13, whiteSpace:"nowrap" }}
+            onClick={addPago}>+ Agregar</button>
+        </div>
+      )}
+
+      {total > 0 && pagos.length === 0 && (
+        <div style={{ fontSize:12, color:"#92400e", background:"#fef3c7", border:"1px solid #fcd34d", borderRadius:8, padding:"8px 12px" }}>
+          Sin pagos asignados → se guardará todo como {labelCredito}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Data display ─────────────────────────────────────────────────────────────
 
 export function KpiCard({ label, value, sub, accent = "#64748b", icon, size = "md", highlight }) {
@@ -143,6 +214,7 @@ export function StockBadge({ stock, tipo }) {
 
 export function PagoBadge({ forma }) {
   if (forma === "Crédito") return <span style={{ ...s.badge, background:"#fef3c7", color:"#92400e" }}>Crédito</span>;
+  if (forma === "Mixto")   return <span style={{ ...s.badge, background:"#dbeafe", color:"#1d4ed8" }}>Mixto</span>;
   return <span style={{ ...s.badge, background:"#d1fae5", color:"#065f46" }}>Contado</span>;
 }
 
@@ -231,8 +303,15 @@ export function HistCard({ children }) {
   return <div style={s.histCard}>{children}</div>;
 }
 
-export function SkuPill({ label }) {
-  return <span style={s.skuPill}>{label}</span>;
+export function SkuPill({ label, reventa }) {
+  return (
+    <span style={{
+      ...s.skuPill,
+      ...(reventa ? { background:"#fef3c7", color:"#92400e" } : {}),
+    }}>
+      {label}{reventa ? " ↩" : ""}
+    </span>
+  );
 }
 
 // ─── Buttons ─────────────────────────────────────────────────────────────────

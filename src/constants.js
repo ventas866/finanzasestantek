@@ -60,6 +60,8 @@ export const DEFAULT_CUENTAS = [
   { id:"ef001", nombre:"Efectivo",     tipo:"efectivo", saldoInicial:0, color:"#10b981" },
   { id:"bc001", nombre:"Bancolombia",  tipo:"banco",    saldoInicial:0, color:"#3b82f6" },
   { id:"nq001", nombre:"Nequi",        tipo:"nequi",    saldoInicial:0, color:"#8b5cf6" },
+  { id:"bb001", nombre:"BBVA",         tipo:"banco",    saldoInicial:0, color:"#1d4ed8" },
+  { id:"sa001", nombre:"Santol",       tipo:"banco",    saldoInicial:0, color:"#dc2626" },
 ];
 
 export const ORIGEN_COLORS = {
@@ -67,6 +69,7 @@ export const ORIGEN_COLORS = {
   "Reventa":           { bg:"#fef3c7", color:"#92400e" },
   "Bajo pedido":       { bg:"#f3e8ff", color:"#6b21a8" },
   "Servicio":          { bg:"#d1fae5", color:"#065f46" },
+  "Mixto":             { bg:"#e0e7ff", color:"#4338ca" },
 };
 
 export const CATEGORIA_COLORS = {

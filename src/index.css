@@ -1,18 +1,18 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
 
 body {
   margin: 0;
   padding: 0;
   background: #f1f5f9;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  color: #0f172a;
 }
 
 #root {
   width: 100%;
-  max-width: 100%;
   margin: 0;
   text-align: left;
   border: none;
@@ -20,40 +20,45 @@ body {
   display: block;
 }
 
-h1, h2, h3, h4 {
-  margin: 0;
-}
+h1, h2, h3, h4, h5 { margin: 0; }
+p { margin: 0; }
+input, select, button, textarea { font-family: inherit; }
 
-p {
-  margin: 0;
-}
-
-input, select, button, textarea {
-  font-family: inherit;
-}
-
-input:focus, select:focus {
+/* Focus */
+input:focus, select:focus, textarea:focus {
   outline: 2px solid #f97316;
   outline-offset: -1px;
   border-color: #f97316 !important;
 }
+button:focus-visible { outline: 2px solid #f97316; outline-offset: 2px; }
 
-button:focus-visible {
-  outline: 2px solid #f97316;
-  outline-offset: 2px;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Recharts tooltip */
+.recharts-tooltip-wrapper { outline: none; }
+.recharts-default-tooltip {
+  background: #0f172a !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+.recharts-tooltip-label { color: #94a3b8 !important; font-size: 12px; margin-bottom: 6px; }
+.recharts-tooltip-item { color: white !important; font-size: 13px; font-weight: 700; }
+
+/* Smooth transitions */
+button { transition: opacity .15s, background .15s, transform .1s; }
+button:active { transform: scale(.98); }
+
+/* Remove default select arrow on some browsers */
+select { appearance: auto; }
+
+/* Number animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 99px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
+.fade-up { animation: fadeUp .3s ease forwards; }

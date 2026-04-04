@@ -10,6 +10,7 @@ export function buildInventory(baseCatalogo, compras, ventas) {
 
   for (const compra of compras) {
     for (const linea of compra.items || []) {
+      if (linea.esLote) continue; // lotes de materia prima no afectan inventario de catálogo
       const actual = map.get(linea.sku);
       if (!actual) continue;
       const cantNueva = Number(linea.cantidad || 0);
@@ -26,8 +27,13 @@ export function buildInventory(baseCatalogo, compras, ventas) {
   }
 
   for (const venta of ventas) {
-    if (venta.origen !== "Inventario propio") continue;
     for (const linea of venta.items || []) {
+      // Item-level reventa flag takes precedence (new records)
+      if (linea.esReventa === true) continue;
+      // Legacy: use global origin for items without explicit flag
+      if (linea.esReventa === undefined || linea.esReventa === null) {
+        if (venta.origen !== "Inventario propio") continue;
+      }
       const actual = map.get(linea.sku);
       if (!actual) continue;
       map.set(linea.sku, {

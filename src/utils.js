@@ -26,19 +26,6 @@ export function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function readLS(key, fallback) {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? JSON.parse(v) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-export function saveLS(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
 export function round2(n) {
   return Math.round(n * 100) / 100;
 }

@@ -53,12 +53,79 @@ button:focus-visible { outline: 2px solid #f97316; outline-offset: 2px; }
 button { transition: opacity .15s, background .15s, transform .1s; }
 button:active { transform: scale(.98); }
 
-/* Remove default select arrow on some browsers */
-select { appearance: auto; }
-
 /* Number animations */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .fade-up { animation: fadeUp .3s ease forwards; }
+
+/* ─── Responsive layout classes ──────────────────────────────────────────── */
+
+/* 2-column: form left + historial right */
+.pg-2col {
+  display: grid;
+  grid-template-columns: 460px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* Generic 2 equal columns */
+.pg-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* 300px left + rest right */
+.pg-300 {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* 320px left + rest right */
+.pg-320 {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ─── Mobile overlay ─────────────────────────────────────────────────────── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 150;
+}
+
+/* ─── Responsive breakpoints ─────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .pg-2col,
+  .pg-two,
+  .pg-300,
+  .pg-320 {
+    grid-template-columns: 1fr !important;
+  }
+
+  .hide-mobile {
+    display: none !important;
+  }
+
+  .sidebar-overlay.active {
+    display: block;
+  }
+}
+
+@media (max-width: 600px) {
+  .page-content-inner {
+    padding: 16px 12px !important;
+  }
+
+  .topbar-inner {
+    padding: 12px 16px !important;
+  }
+}

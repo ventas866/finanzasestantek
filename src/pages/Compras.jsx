@@ -28,7 +28,7 @@ function exportComprasCSV(compras, cuentas) {
 }
 
 export default function Compras({
-  compras, catalogo, cuentas,
+  compras, ventas = [], catalogo, cuentas,
   editingId, setEditingId,
   form, setForm,
   linea, setLinea,
@@ -88,9 +88,9 @@ export default function Compras({
 
   // ── Stats historial ───────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const totalComprado  = compras.reduce((a, c) => a + c.total, 0);
-    const proveedores    = [...new Set(compras.map((c) => c.proveedor))];
-    const pendientePagar = compras.reduce((a, c) => {
+    const totalCompradoBase = compras.reduce((a, c) => a + c.total, 0);
+    const proveedores       = [...new Set(compras.map((c) => c.proveedor))];
+    const pendientePagar    = compras.reduce((a, c) => {
       const creditoBase = c.pagos?.length > 0
         ? Math.max(0, c.total - c.pagos.reduce((s,p)=>s+p.monto,0))
         : c.formaPago === "Crédito" ? c.total : 0;
@@ -104,8 +104,27 @@ export default function Compras({
       const pagado = (c.pagosProv||[]).reduce((s,p)=>s+p.monto,0);
       return Math.max(0, creditoBase - pagado) === 0;
     }).length;
-    return { totalComprado, numProveedores: proveedores.length, pendientePagar, completadas, proveedores };
-  }, [compras]);
+
+    // Pagos a proveedores de reventa (también son compras)
+    const totalPagosReventa = ventas.reduce((a, v) =>
+      a + (v.pagosProvReventa||[]).reduce((b, p) => b + p.monto, 0), 0);
+
+    // Proveedores únicos de reventa (los que tienen nombre registrado)
+    const provReventa = [...new Set(
+      ventas.flatMap((v) => (v.pagosProvReventa||[]).map((p) => p.proveedor).filter(Boolean))
+    )];
+    const todosProveedores = [...new Set([...proveedores, ...provReventa])];
+
+    return {
+      totalComprado: totalCompradoBase + totalPagosReventa,
+      totalCompradoBase,
+      totalPagosReventa,
+      numProveedores: todosProveedores.length,
+      pendientePagar,
+      completadas,
+      proveedores,
+    };
+  }, [compras, ventas]);
 
   // ── Filtrado historial ────────────────────────────────────────────────────
   const histFiltrado = useMemo(() => {
@@ -145,7 +164,14 @@ export default function Compras({
       {/* Stats summary */}
       {compras.length > 0 && (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:12 }}>
-          <StatBox label="Total comprado" value={money(stats.totalComprado)} color="#0f172a" />
+          <StatBox
+            label="Total comprado"
+            value={money(stats.totalComprado)}
+            color="#0f172a"
+            sub={stats.totalPagosReventa > 0
+              ? `Compras: ${money(stats.totalCompradoBase)} + Reventas: ${money(stats.totalPagosReventa)}`
+              : null}
+          />
           <StatBox label="Proveedores" value={stats.numProveedores} color="#6366f1" />
           <StatBox label="Por pagar" value={money(stats.pendientePagar)} color={stats.pendientePagar > 0 ? "#dc2626" : "#10b981"} />
           <StatBox label="Completadas" value={`${stats.completadas}/${compras.length}`} color="#10b981" />
@@ -447,11 +473,12 @@ export default function Compras({
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-function StatBox({ label, value, color }) {
+function StatBox({ label, value, color, sub }) {
   return (
     <div style={{ background:"white", borderRadius:12, padding:"14px 16px", border:"1px solid #e2e8f0" }}>
       <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 }}>{label}</div>
       <div style={{ fontSize:20, fontWeight:900, color: color || "#0f172a" }}>{value}</div>
+      {sub && <div style={{ fontSize:11, color:"#94a3b8", marginTop:4 }}>{sub}</div>}
     </div>
   );
 }

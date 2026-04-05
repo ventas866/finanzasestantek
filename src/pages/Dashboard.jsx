@@ -22,7 +22,8 @@ const C = {
   bg:         "#F5F5F5",
 };
 
-const PIE_COLORS = ["#E65100","#1976D2","#7B1FA2","#2E7D32","#D81B60","#00838F"];
+const PIE_COLORS = ["#2E7D32","#E65100","#1976D2","#7B1FA2","#D81B60","#00838F"];
+// Índice 0 = Inventario propio (verde), Índice 1 = Reventa (naranja)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function trendPct(curr, prev) {
@@ -181,7 +182,10 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     const utilidadNeta     = utilidadBruta - totalGastos;
     const margenBruto      = totalVentas > 0 ? (utilidadBruta / totalVentas) * 100 : 0;
     const margenNeto       = totalVentas > 0 ? (utilidadNeta / totalVentas) * 100 : 0;
-    const totalCompras     = cF.reduce((a, c) => a + c.total, 0);
+    // Pagos a proveedores de reventa (cuentan como compras)
+    const totalPagosReventa = vF.reduce((a, v) =>
+      a + (v.pagosProvReventa||[]).reduce((b, p) => b + p.monto, 0), 0);
+    const totalCompras     = cF.reduce((a, c) => a + c.total, 0) + totalPagosReventa;
     const totalInversiones = iF.reduce((a, i) => a + i.valor, 0);
     const cajaTeorica      =
       inversiones.reduce((a,x)=>a+x.valor,0) +
@@ -215,15 +219,39 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       return a + Math.max(0, base - pagado);
     }, 0);
 
-    const ventasPorOrigen = vF.reduce((acc, v) => {
-      acc[v.origen] = (acc[v.origen] || 0) + v.total;
-      return acc;
-    }, {});
+    // Ventas por origen: desglose a nivel de ítem (propio vs reventa)
+    // Así las ventas mixtas se dividen correctamente entre ambas categorías
+    let montoPropio = 0;
+    let montoReventa = 0;
+    vF.forEach((v) => {
+      if (v.items && v.items.length > 0) {
+        v.items.forEach((it) => {
+          if (it.esReventa) montoReventa += (it.subtotal || 0);
+          else               montoPropio  += (it.subtotal || 0);
+        });
+      } else {
+        // Venta sin detalle de ítems: usar origen general
+        if (v.origen === "Reventa") montoReventa += v.total;
+        else                         montoPropio  += v.total;
+      }
+    });
+    const ventasPorOrigen = {
+      ...(montoPropio  > 0 ? { "Inventario propio": montoPropio }  : {}),
+      ...(montoReventa > 0 ? { "Reventa":            montoReventa } : {}),
+    };
 
+    // Top proveedores: compras regulares + pagos de reventa
     const proveedorMap = compras.reduce((acc, c) => {
       acc[c.proveedor] = (acc[c.proveedor] || 0) + c.total;
       return acc;
     }, {});
+    // Sumar pagos de reventa al proveedor correspondiente
+    ventas.forEach((v) => {
+      (v.pagosProvReventa||[]).forEach((p) => {
+        const nombre = p.proveedor || "Prov. reventa";
+        proveedorMap[nombre] = (proveedorMap[nombre] || 0) + p.monto;
+      });
+    });
     const topProveedores = Object.entries(proveedorMap)
       .sort((a, b) => b[1] - a[1]).slice(0, 5)
       .map(([nombre, total]) => ({ nombre, total }));

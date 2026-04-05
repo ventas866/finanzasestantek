@@ -40,7 +40,7 @@ export default function Ventas({
   onPagarProveedorReventa,
 }) {
   const [pagoProvOpen, setPagoProvOpen] = useState(null);
-  const [pagoProvForm, setPagoProvForm] = useState({ fecha: today(), monto:"", cuentaId:"", nota:"" });
+  const [pagoProvForm, setPagoProvForm] = useState({ fecha: today(), monto:"", cuentaId:"", nota:"", proveedor:"" });
   const [search,    setSearch]    = useState("");
   const [filtOrigen,setFiltOrigen]= useState("todos");
   const [filtPer,   setFiltPer]   = useState("todos");
@@ -399,7 +399,7 @@ export default function Ventas({
                           const pagadoProv = (item.pagosProvReventa||[]).reduce((a,p)=>a+p.monto,0);
                           const pendienteProv = Math.max(0, item.costoReventa - pagadoProv);
                           setPagoProvOpen(item.id);
-                          setPagoProvForm({ fecha:today(), monto:pendienteProv.toString(), cuentaId:"", nota:"" });
+                          setPagoProvForm({ fecha:today(), monto:pendienteProv.toString(), cuentaId:"", nota:"", proveedor:"" });
                         }}
                         onClose={() => setPagoProvOpen(null)}
                         onFormChange={(f) => setPagoProvForm(f)}
@@ -408,12 +408,13 @@ export default function Ventas({
                           if (monto <= 0) return;
                           // Reset PRIMERO para evitar crash de DOM al actualizar ventas
                           setPagoProvOpen(null);
-                          setPagoProvForm({ fecha:today(), monto:"", cuentaId:"", nota:"" });
+                          setPagoProvForm({ fecha:today(), monto:"", cuentaId:"", nota:"", proveedor:"" });
                           onPagarProveedorReventa(item.id, {
                             fecha: pagoProvForm.fecha,
                             monto,
                             cuentaId: pagoProvForm.cuentaId || null,
                             nota: pagoProvForm.nota,
+                            proveedor: pagoProvForm.proveedor || null,
                           });
                         }}
                       />
@@ -480,6 +481,7 @@ function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onForm
               <span>✓</span>
               <span>
                 {p.fecha}: {money(p.monto)}
+                {p.proveedor ? ` [${p.proveedor}]` : ""}
                 {p.cuentaId ? ` → ${cuentas.find(c=>c.id===p.cuentaId)?.nombre||"?"}` : ""}
                 {p.nota ? ` · ${p.nota}` : ""}
               </span>
@@ -511,6 +513,11 @@ function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onForm
                 onChange={(e) => onFormChange({...form, monto:e.target.value})} />
             </div>
             <div>
+              <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Proveedor</div>
+              <input style={inputStyle} autoComplete="off" placeholder="Ej: Comerinv" value={form.proveedor||""}
+                onChange={(e) => onFormChange({...form, proveedor:e.target.value})} />
+            </div>
+            <div>
               <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Cuenta de salida</div>
               <select style={selectStyle} value={form.cuentaId}
                 onChange={(e) => onFormChange({...form, cuentaId:e.target.value})}>
@@ -518,7 +525,7 @@ function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onForm
                 {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
             </div>
-            <div>
+            <div style={{ gridColumn:"1/-1" }}>
               <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Nota</div>
               <input style={inputStyle} autoComplete="off" placeholder="Ej: Transferencia Nequi" value={form.nota}
                 onChange={(e) => onFormChange({...form, nota:e.target.value})} />

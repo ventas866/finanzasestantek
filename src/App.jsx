@@ -519,7 +519,7 @@ export default function App() {
           )}
           {pagina==="Compras"      && (
             <Compras
-              compras={compras} catalogo={catalogo} cuentas={cuentas}
+              compras={compras} ventas={ventas} catalogo={catalogo} cuentas={cuentas}
               editingId={editingCompraId} setEditingId={setEditingCompraId}
               form={formCompra} setForm={setFormCompra}
               linea={compraLinea} setLinea={setCompraLinea}

@@ -104,6 +104,13 @@ export default function Caja({
         const cuenta = cuentas.find((c) => c.id === ab.cuentaId);
         mov.push({ fecha:ab.fecha, tipo:"Ingreso", concepto:`Abono cartera: ${v.cliente}`, valor:ab.valor, cuenta:cuenta?.nombre||"—", signo:"+" });
       });
+      // Pagos a proveedor de reventa
+      (v.pagosProvReventa || []).forEach((p) => {
+        if (!p.cuentaId) return;
+        const cuenta = cuentas.find((c) => c.id === p.cuentaId);
+        const nota = p.nota ? ` · ${p.nota}` : "";
+        mov.push({ fecha:p.fecha, tipo:"Egreso", concepto:`Pago prov. reventa: ${v.cliente}${nota}`, valor:p.monto, cuenta:cuenta?.nombre||"—", signo:"-" });
+      });
     });
     compras.forEach((c) => {
       if (c.pagos?.length > 0) {

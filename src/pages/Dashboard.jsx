@@ -78,37 +78,100 @@ function PieTooltip({ active, payload }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo }) {
   const [chartPeriod, setChartPeriod] = useState("6");
-  const [mesFiltro,   setMesFiltro]   = useState("");
+  const [filtroAno,   setFiltroAno]   = useState("");   // "" = histórico total
+  const [filtroMes,   setFiltroMes]   = useState("");   // "01"–"12", solo activo si filtroAno
 
-  const thisMonth = currentMonthStr();
-  const lastMonth = prevMonthStr();
+  // ── Años disponibles derivados de los datos ───────────────────────────────
+  const anosDisponibles = useMemo(() => {
+    const years = new Set();
+    [...ventas, ...gastos, ...compras].forEach((x) => {
+      if (x.fecha) years.add(x.fecha.slice(0, 4));
+    });
+    return [...years].sort();
+  }, [ventas, gastos, compras]);
 
-  // ── Current & previous month aggregates (respects mesFiltro) ─────────────
-  const monthStats = useMemo(() => {
-    // Si hay filtro activo, usarlo como "mes seleccionado"; sino el mes actual
-    const selMonth = mesFiltro || thisMonth;
-    // Mes anterior relativo al mes seleccionado
-    const [y, mo] = selMonth.split("-").map(Number);
-    const pd = new Date(y, mo - 2, 1);
-    const prevM = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, "0")}`;
+  // ── Filtrado de datos ─────────────────────────────────────────────────────
+  const cF = useMemo(() => {
+    if (!filtroAno) return compras;
+    if (!filtroMes) return compras.filter((x) => x.fecha?.startsWith(filtroAno));
+    return compras.filter((x) => isoMonth(x.fecha) === `${filtroAno}-${filtroMes}`);
+  }, [compras, filtroAno, filtroMes]);
 
-    function calc(mes) {
-      const vv = ventas.filter((v) => isoMonth(v.fecha) === mes);
-      const gg = gastos.filter((g) => isoMonth(g.fecha) === mes);
+  const vF = useMemo(() => {
+    if (!filtroAno) return ventas;
+    if (!filtroMes) return ventas.filter((x) => x.fecha?.startsWith(filtroAno));
+    return ventas.filter((x) => isoMonth(x.fecha) === `${filtroAno}-${filtroMes}`);
+  }, [ventas, filtroAno, filtroMes]);
+
+  const gF = useMemo(() => {
+    if (!filtroAno) return gastos;
+    if (!filtroMes) return gastos.filter((x) => x.fecha?.startsWith(filtroAno));
+    return gastos.filter((x) => isoMonth(x.fecha) === `${filtroAno}-${filtroMes}`);
+  }, [gastos, filtroAno, filtroMes]);
+
+  const iF = useMemo(() => {
+    if (!filtroAno) return inversiones;
+    if (!filtroMes) return inversiones.filter((x) => x.fecha?.startsWith(filtroAno));
+    return inversiones.filter((x) => isoMonth(x.fecha) === `${filtroAno}-${filtroMes}`);
+  }, [inversiones, filtroAno, filtroMes]);
+
+  // ── KPI stats + comparación con período anterior ──────────────────────────
+  const kpiStats = useMemo(() => {
+    function calcFromArrays(vv, gg) {
       const ingresos = vv.reduce((a, v) => a + v.total, 0);
       const costo    = vv.reduce((a, v) => a + (v.costoTotal || 0), 0);
       const gasto    = gg.reduce((a, g) => a + g.valor, 0);
       return { ingresos, costo, gasto, ganancia: ingresos - costo - gasto };
     }
-    return { curr: calc(selMonth), prev: calc(prevM), selMonth };
-  }, [ventas, gastos, thisMonth, mesFiltro]);
+    const curr = calcFromArrays(vF, gF);
 
-  // ── All-time metrics (for detailed panels below) ──────────────────────────
+    // "anterior" según el nivel de filtro
+    let prevV = [], prevG = [];
+    if (filtroAno && filtroMes) {
+      // Mes seleccionado → comparar con mes anterior
+      const pd = new Date(Number(filtroAno), Number(filtroMes) - 2, 1);
+      const prevM = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, "0")}`;
+      prevV = ventas.filter((x) => isoMonth(x.fecha) === prevM);
+      prevG = gastos.filter((x) => isoMonth(x.fecha) === prevM);
+    } else if (filtroAno && !filtroMes) {
+      // Año seleccionado → comparar con año anterior
+      const prevAno = String(Number(filtroAno) - 1);
+      prevV = ventas.filter((x) => x.fecha?.startsWith(prevAno));
+      prevG = gastos.filter((x) => x.fecha?.startsWith(prevAno));
+    }
+    // Sin filtro (histórico): no hay anterior relevante
+    const prev = calcFromArrays(prevV, prevG);
+    const hasPrev = filtroAno !== "";
+    return { curr, prev, hasPrev };
+  }, [vF, gF, filtroAno, filtroMes, ventas, gastos]);
+
+  // ── Etiqueta del período seleccionado ─────────────────────────────────────
+  const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                     "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const periodoLabel = useMemo(() => {
+    if (!filtroAno) return "Histórico total";
+    if (!filtroMes) return `Año ${filtroAno}`;
+    return `${MONTHS_ES[Number(filtroMes) - 1]} ${filtroAno}`;
+  }, [filtroAno, filtroMes]);
+
+  const periodoSubtitulo = useMemo(() => {
+    if (!filtroAno) return "Acumulado total · todos los registros";
+    if (!filtroMes) return `Resumen año ${filtroAno} · vs año ${Number(filtroAno) - 1}`;
+    return `Mes seleccionado · comparado con el mes anterior`;
+  }, [filtroAno, filtroMes]);
+
+  const trendLabel = useMemo(() => {
+    if (!filtroAno) return "acumulado histórico";
+    if (!filtroMes) return `vs ${Number(filtroAno) - 1}`;
+    return "vs mes anterior";
+  }, [filtroAno, filtroMes]);
+
   const meses = useMemo(() => lastNMonths(12), []);
-  const cF = useMemo(() => mesFiltro ? compras.filter((x) => isoMonth(x.fecha) === mesFiltro) : compras, [compras, mesFiltro]);
-  const vF = useMemo(() => mesFiltro ? ventas.filter((x)  => isoMonth(x.fecha) === mesFiltro) : ventas,  [ventas,  mesFiltro]);
-  const gF = useMemo(() => mesFiltro ? gastos.filter((x)  => isoMonth(x.fecha) === mesFiltro) : gastos,  [gastos,  mesFiltro]);
-  const iF = useMemo(() => mesFiltro ? inversiones.filter((x) => isoMonth(x.fecha) === mesFiltro) : inversiones, [inversiones, mesFiltro]);
+
+  // ── Trends (para KPI cards) ───────────────────────────────────────────────
+  const trendIngresos = trendPct(kpiStats.curr.ingresos, kpiStats.prev.ingresos);
+  const trendGastos   = trendPct(kpiStats.curr.gasto,    kpiStats.prev.gasto);
+  const trendGanancia = trendPct(kpiStats.curr.ganancia, kpiStats.prev.ganancia);
 
   const r = useMemo(() => {
     const totalVentas      = vF.reduce((a, v) => a + v.total, 0);
@@ -217,68 +280,89 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
 
   const hasData = ventas.length > 0;
 
-  // ── Derived trends ────────────────────────────────────────────────────────
-  const trendIngresos = trendPct(monthStats.curr.ingresos, monthStats.prev.ingresos);
-  const trendGastos   = trendPct(monthStats.curr.gasto,    monthStats.prev.gasto);
-  const trendGanancia = trendPct(monthStats.curr.ganancia, monthStats.prev.ganancia);
-
   return (
     <div style={layout}>
 
-      {/* ── Header del mes ───────────────────────────────────────────────── */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
-        <div>
-          <h2 style={{ margin:0, fontSize:20, fontWeight:700, color:C.ink }}>
-            📊 {mesFiltro ? monthLabel(mesFiltro + "-01") : currentMonthLabel()}
-          </h2>
-          <p style={{ margin:"3px 0 0", fontSize:13, color:C.ink4 }}>
-            {mesFiltro ? "Mes seleccionado · comparado con el mes anterior" : "Resumen del mes actual · comparado con el mes anterior"}
-          </p>
-        </div>
-        <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
-          <span style={{ fontSize:12, color:C.ink4, fontWeight:600, marginRight:4 }}>Filtrar análisis:</span>
-          {meses.slice(-6).map((m) => (
-            <button key={m} style={{ ...periodBtn, ...(mesFiltro === m ? periodBtnActive : {}) }}
-              onClick={() => setMesFiltro(mesFiltro === m ? "" : m)}>
-              {monthLabel(m + "-01").split(" ")[0]}
-            </button>
-          ))}
-          {mesFiltro && (
-            <button style={{ ...periodBtn, color:C.negative, borderColor:"#EF9A9A" }}
-              onClick={() => setMesFiltro("")}>✕ Limpiar</button>
-          )}
+      {/* ── Header + filtros ─────────────────────────────────────────────── */}
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12 }}>
+          <div>
+            <h2 style={{ margin:0, fontSize:20, fontWeight:700, color:C.ink }}>
+              📊 {periodoLabel}
+            </h2>
+            <p style={{ margin:"3px 0 0", fontSize:13, color:C.ink4 }}>{periodoSubtitulo}</p>
+          </div>
+          {/* Filtro año */}
+          <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"flex-end" }}>
+            <div style={{ display:"flex", gap:5, alignItems:"center", flexWrap:"wrap" }}>
+              <span style={{ fontSize:12, color:C.ink4, fontWeight:600, marginRight:2 }}>Año:</span>
+              <button
+                style={{ ...periodBtn, ...(filtroAno === "" ? periodBtnActive : {}) }}
+                onClick={() => { setFiltroAno(""); setFiltroMes(""); }}>
+                Todo
+              </button>
+              {anosDisponibles.map((a) => (
+                <button key={a}
+                  style={{ ...periodBtn, ...(filtroAno === a ? periodBtnActive : {}) }}
+                  onClick={() => { setFiltroAno(a); setFiltroMes(""); }}>
+                  {a}
+                </button>
+              ))}
+            </div>
+            {/* Sub-filtro mes (solo si hay año seleccionado) */}
+            {filtroAno && (
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap", justifyContent:"flex-end" }}>
+                <span style={{ fontSize:12, color:C.ink4, fontWeight:600, marginRight:2, alignSelf:"center" }}>Mes:</span>
+                <button
+                  style={{ ...periodBtn, ...(filtroMes === "" ? periodBtnActive : {}) }}
+                  onClick={() => setFiltroMes("")}>
+                  Todos
+                </button>
+                {["01","02","03","04","05","06","07","08","09","10","11","12"].map((m) => {
+                  const hasData2 = [...ventas, ...gastos].some((x) => x.fecha?.startsWith(`${filtroAno}-${m}`));
+                  if (!hasData2) return null;
+                  return (
+                    <button key={m}
+                      style={{ ...periodBtn, ...(filtroMes === m ? periodBtnActive : {}) }}
+                      onClick={() => setFiltroMes(m)}>
+                      {MONTHS_ES[Number(m) - 1].slice(0, 3)}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── 4 KPI Cards del mes ──────────────────────────────────────────── */}
+      {/* ── 4 KPI Cards ──────────────────────────────────────────────────── */}
       <div style={kpiRow4}>
         <MonthKpi
-          label="INGRESOS DEL MES"
-          value={money(monthStats.curr.ingresos)}
-          trend={trendIngresos}
-          trendLabel="vs mes anterior"
+          label={filtroMes ? "INGRESOS DEL MES" : filtroAno ? `INGRESOS ${filtroAno}` : "INGRESOS TOTALES"}
+          value={money(kpiStats.curr.ingresos)}
+          trend={kpiStats.hasPrev ? trendIngresos : undefined}
+          trendLabel={trendLabel}
           valueColor={C.positive}
           icon={<ArrowUp color={C.positive} />}
           accent={C.positive}
         />
         <MonthKpi
-          label="GASTOS DEL MES"
-          value={money(monthStats.curr.gasto)}
-          trend={-trendGastos}   /* invertido: más gasto es peor */
-          trendLabel="vs mes anterior"
+          label={filtroMes ? "GASTOS DEL MES" : filtroAno ? `GASTOS ${filtroAno}` : "GASTOS TOTALES"}
+          value={money(kpiStats.curr.gasto)}
+          trend={kpiStats.hasPrev ? -trendGastos : undefined}
+          trendLabel={trendLabel}
           valueColor={C.negative}
           icon={<ArrowDown color={C.negative} />}
           accent={C.negative}
-          invertTrend
         />
         <MonthKpi
           label="GANANCIA NETA"
-          value={money(monthStats.curr.ganancia)}
-          trend={trendGanancia}
-          trendLabel="vs mes anterior"
-          valueColor={monthStats.curr.ganancia >= 0 ? C.brand : C.negative}
-          icon={<span style={{ fontSize:16 }}>{monthStats.curr.ganancia >= 0 ? "◈" : "⚠"}</span>}
-          accent={monthStats.curr.ganancia >= 0 ? C.brand : C.negative}
+          value={money(kpiStats.curr.ganancia)}
+          trend={kpiStats.hasPrev ? trendGanancia : undefined}
+          trendLabel={trendLabel}
+          valueColor={kpiStats.curr.ganancia >= 0 ? C.brand : C.negative}
+          icon={<span style={{ fontSize:16 }}>{kpiStats.curr.ganancia >= 0 ? "◈" : "⚠"}</span>}
+          accent={kpiStats.curr.ganancia >= 0 ? C.brand : C.negative}
         />
         <MonthKpi
           label="BALANCE TOTAL"
@@ -408,7 +492,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
         <div style={{ background:"white", borderRadius:14, padding:"20px 22px", boxShadow:"0 1px 4px rgba(0,0,0,.08)", border:`1px solid ${C.border}` }}>
           <div style={panelHeader}>
             <h3 style={panelTitle}>Estado de resultados</h3>
-            {mesFiltro && <span style={{ ...chartLegend, background:C.brandLight, color:C.brand, borderRadius:6, padding:"2px 8px" }}>{monthLabel(mesFiltro+"-01")}</span>}
+            {(filtroAno || filtroMes) && <span style={{ ...chartLegend, background:C.brandLight, color:C.brand, borderRadius:6, padding:"2px 8px" }}>{periodoLabel}</span>}
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             <FinRow label="(+) Ventas"             value={money(r.totalVentas)} />

@@ -293,7 +293,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
             <p style={{ margin:"3px 0 0", fontSize:13, color:C.ink4 }}>{periodoSubtitulo}</p>
           </div>
           {/* Filtro año */}
-          <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"flex-end" }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             <div style={{ display:"flex", gap:5, alignItems:"center", flexWrap:"wrap" }}>
               <span style={{ fontSize:12, color:C.ink4, fontWeight:600, marginRight:2 }}>Año:</span>
               <button
@@ -311,7 +311,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
             </div>
             {/* Sub-filtro mes (solo si hay año seleccionado) */}
             {filtroAno && (
-              <div style={{ display:"flex", gap:5, flexWrap:"wrap", justifyContent:"flex-end" }}>
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
                 <span style={{ fontSize:12, color:C.ink4, fontWeight:600, marginRight:2, alignSelf:"center" }}>Mes:</span>
                 <button
                   style={{ ...periodBtn, ...(filtroMes === "" ? periodBtnActive : {}) }}
@@ -429,7 +429,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       </div>
 
       {/* ── Inventario valorizado ─────────────────────────────────────────── */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
+      <div className="pg-3col">
         <InvCard
           label="Inventario @ costo"
           value={money(r.valorInventarioCosto)}
@@ -734,7 +734,7 @@ function ArrowDown({ color }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const layout   = { display:"flex", flexDirection:"column", gap:20 };
-const kpiRow4  = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:14 };
+const kpiRow4  = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:14 };
 const kpiRow2  = { display:"flex", gap:12, flexWrap:"wrap" };
 const panelStyle   = { background:"white", borderRadius:14, padding:"20px 22px", boxShadow:"0 1px 4px rgba(0,0,0,.08)", border:`1px solid ${C.border}` };
 const panelHeader  = { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 };

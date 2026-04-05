@@ -355,7 +355,7 @@ export default function Compras({
 
                       <div style={{ flex:1, padding:"14px 16px" }}>
                         {/* Header */}
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
                           <div>
                             {/* Proveedor con inicial */}
                             <div style={{ display:"flex", alignItems:"center", gap:10 }}>

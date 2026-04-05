@@ -544,7 +544,7 @@ function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onForm
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const histList  = { display:"flex", flexDirection:"column", gap:10 };
-const histTop   = { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 };
+const histTop   = { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" };
 const itemsList = { display:"flex", flexDirection:"column", gap:8, margin:"4px 0" };
 const itemRow   = { display:"flex", justifyContent:"space-between", alignItems:"center", background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"10px 14px", gap:12 };
 const itemLeft  = { display:"flex", flexDirection:"column", gap:2, flex:1 };

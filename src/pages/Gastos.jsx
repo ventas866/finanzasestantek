@@ -125,7 +125,7 @@ export default function Gastos({
         }
       />
 
-      <div style={pageGrid}>
+      <div className="pg-380">
         {/* ── Formulario ── */}
         <Panel title={editingId ? "✎ Editar gasto" : "Registrar gasto"}>
           {editingId && <Alert type="info" text="Editando gasto. Modifica los campos y guarda." />}
@@ -227,13 +227,15 @@ export default function Gastos({
               <EmptyState icon="💸" text={hasFilters ? "Sin resultados con ese filtro." : "No hay gastos registrados."} />
             ) : (
               <>
+                <div className="table-scroll">
+                  <div className="table-inner">
                 {/* Cabecera */}
                 <div style={tableHead}>
                   <span style={{ flex:"0 0 90px" }}>Fecha</span>
                   <span style={{ flex:1 }}>Descripción</span>
                   <span style={{ flex:"0 0 130px" }}>Categoría</span>
                   <span style={{ flex:"0 0 110px", textAlign:"right" }}>Monto</span>
-                  <span style={{ flex:"0 0 100px" }} />
+                  <span style={{ flex:"0 0 80px" }} />
                 </div>
                 <div style={{ display:"flex", flexDirection:"column" }}>
                   {paginated.map((item) => (
@@ -257,13 +259,15 @@ export default function Gastos({
                       <span style={{ flex:"0 0 110px", textAlign:"right", fontWeight:700, fontSize:14, color:"#C62828" }}>
                         −{money(item.valor)}
                       </span>
-                      <div className="row-actions" style={{ flex:"0 0 100px", display:"flex", gap:5, justifyContent:"flex-end" }}>
+                      <div className="row-actions" style={{ flex:"0 0 80px", display:"flex", gap:5, justifyContent:"flex-end" }}>
                         <EditBtn onClick={() => onEdit(item)} />
                         <DeleteBtn onClick={() => handleDelete(item.id)} />
                       </div>
                     </div>
                   ))}
                 </div>
+                  </div>{/* /table-inner */}
+                </div>{/* /table-scroll */}
 
                 {/* Paginación */}
                 {totalPaginas > 1 && (

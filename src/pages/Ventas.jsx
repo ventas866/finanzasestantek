@@ -374,19 +374,12 @@ export default function Ventas({
                             {pendiente > 0 ? `Por cobrar: ${money(pendiente)}` : "✓ Cobrado"}
                           </div>
                         )}
-                        {item.costoReventa > 0 && (() => {
-                          const pagadoProv = (item.pagosProvReventa||[]).reduce((a,p)=>a+p.monto,0);
-                          const pendienteProv = Math.max(0, item.costoReventa - pagadoProv);
-                          return (
-                            <div style={{ fontSize:12, fontWeight:600 }}>
-                              <span style={{ color:"#92400e" }}>Reventa: {money(item.costoReventa)}</span>
-                              {pendienteProv > 0
-                                ? <span style={{ color:"#dc2626", display:"block" }}>⚠ Prov: {money(pendienteProv)} pendiente</span>
-                                : <span style={{ color:"#059669", display:"block" }}>✓ Proveedor pagado</span>
-                              }
-                            </div>
-                          );
-                        })()}
+                        {item.costoReventa > 0 && (
+                          <ReventaStatus
+                            costoReventa={item.costoReventa}
+                            pagosProvReventa={item.pagosProvReventa}
+                          />
+                        )}
                       </div>
                     </div>
                     <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
@@ -396,100 +389,35 @@ export default function Ventas({
                     </div>
 
                     {/* ── Pago al proveedor de reventa ─────────────────── */}
-                    {item.costoReventa > 0 && (() => {
-                      const pagadoProv    = (item.pagosProvReventa||[]).reduce((a,p)=>a+p.monto,0);
-                      const pendienteProv = Math.max(0, item.costoReventa - pagadoProv);
-                      const pagoPct       = item.costoReventa > 0 ? Math.min(100,(pagadoProv/item.costoReventa)*100) : 100;
-                      const isOpen        = pagoProvOpen === item.id;
-                      return (
-                        <div style={{ marginTop:8, paddingTop:10, borderTop:"1px solid #fde68a" }}>
-                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5 }}>
-                            <span style={{ color:"#92400e", fontWeight:700 }}>Pago al proveedor (reventa)</span>
-                            <span style={{ fontWeight:700, color: pendienteProv > 0 ? "#dc2626" : "#059669" }}>
-                              {pendienteProv > 0 ? `Pendiente: ${money(pendienteProv)}` : "✓ Cancelado"}
-                            </span>
-                          </div>
-                          <div style={{ height:6, background:"#fef3c7", borderRadius:99, marginBottom:6 }}>
-                            <div style={{ height:"100%", width:`${pagoPct}%`, background: pendienteProv > 0 ? "#f59e0b" : "#10b981", borderRadius:99, transition:"width .4s" }} />
-                          </div>
-                          {(item.pagosProvReventa||[]).length > 0 && (
-                            <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:8 }}>
-                              {item.pagosProvReventa.map((p) => (
-                                <div key={p.id} style={{ fontSize:11, color:"#92400e", display:"flex", gap:6 }}>
-                                  <span>✓</span>
-                                  <span>
-                                    {p.fecha}: {money(p.monto)}
-                                    {p.cuentaId ? ` → ${cuentas.find(c=>c.id===p.cuentaId)?.nombre||"?"}` : ""}
-                                    {p.nota ? ` · ${p.nota}` : ""}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {pendienteProv > 0 && !isOpen && (
-                            <button
-                              style={{ fontSize:12, fontWeight:700, background:"#fef3c7", color:"#92400e", border:"1px solid #fde68a", borderRadius:7, padding:"5px 12px", cursor:"pointer" }}
-                              onClick={() => {
-                                setPagoProvOpen(item.id);
-                                setPagoProvForm({ fecha:today(), monto:pendienteProv.toString(), cuentaId:"", nota:"" });
-                              }}>
-                              + Registrar pago al proveedor
-                            </button>
-                          )}
-                          {pendienteProv > 0 && isOpen && (
-                            <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:10 }}>
-                              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                                <div>
-                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Fecha</div>
-                                  <input type="date" style={inputStyle} value={pagoProvForm.fecha}
-                                    onChange={(e) => setPagoProvForm({...pagoProvForm, fecha:e.target.value})} />
-                                </div>
-                                <div>
-                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Monto</div>
-                                  <input type="number" style={inputStyle} value={pagoProvForm.monto}
-                                    onChange={(e) => setPagoProvForm({...pagoProvForm, monto:e.target.value})} />
-                                </div>
-                                <div>
-                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Cuenta de salida</div>
-                                  <select style={selectStyle} value={pagoProvForm.cuentaId}
-                                    onChange={(e) => setPagoProvForm({...pagoProvForm, cuentaId:e.target.value})}>
-                                    <option value="">Sin asignar</option>
-                                    {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                  </select>
-                                </div>
-                                <div>
-                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Nota</div>
-                                  <input style={inputStyle} placeholder="Ej: Transferencia Nequi" value={pagoProvForm.nota}
-                                    onChange={(e) => setPagoProvForm({...pagoProvForm, nota:e.target.value})} />
-                                </div>
-                              </div>
-                              <div style={{ display:"flex", gap:8 }}>
-                                <button
-                                  style={{ flex:1, background:"#92400e", color:"white", border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, fontSize:13, cursor:"pointer" }}
-                                  onClick={() => {
-                                    const monto = Number(pagoProvForm.monto||0);
-                                    if (monto <= 0) return;
-                                    onPagarProveedorReventa(item.id, {
-                                      fecha: pagoProvForm.fecha,
-                                      monto,
-                                      cuentaId: pagoProvForm.cuentaId || null,
-                                      nota: pagoProvForm.nota,
-                                    });
-                                    setPagoProvOpen(null);
-                                  }}>
-                                  ✓ Guardar pago
-                                </button>
-                                <button
-                                  style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"9px 12px", fontWeight:600, fontSize:13, cursor:"pointer" }}
-                                  onClick={() => setPagoProvOpen(null)}>
-                                  Cancelar
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
+                    {item.costoReventa > 0 && (
+                      <PagoProvReventa
+                        venta={item}
+                        cuentas={cuentas}
+                        isOpen={pagoProvOpen === item.id}
+                        form={pagoProvForm}
+                        onOpen={() => {
+                          const pagadoProv = (item.pagosProvReventa||[]).reduce((a,p)=>a+p.monto,0);
+                          const pendienteProv = Math.max(0, item.costoReventa - pagadoProv);
+                          setPagoProvOpen(item.id);
+                          setPagoProvForm({ fecha:today(), monto:pendienteProv.toString(), cuentaId:"", nota:"" });
+                        }}
+                        onClose={() => setPagoProvOpen(null)}
+                        onFormChange={(f) => setPagoProvForm(f)}
+                        onGuardar={() => {
+                          const monto = Number(pagoProvForm.monto||0);
+                          if (monto <= 0) return;
+                          // Reset PRIMERO para evitar crash de DOM al actualizar ventas
+                          setPagoProvOpen(null);
+                          setPagoProvForm({ fecha:today(), monto:"", cuentaId:"", nota:"" });
+                          onPagarProveedorReventa(item.id, {
+                            fecha: pagoProvForm.fecha,
+                            monto,
+                            cuentaId: pagoProvForm.cuentaId || null,
+                            nota: pagoProvForm.nota,
+                          });
+                        }}
+                      />
+                    )}
 
                     <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
                       <EditBtn onClick={() => onEdit(item)} />
@@ -506,6 +434,115 @@ export default function Ventas({
   );
 }
 
+// ─── Sub-componente: estado de reventa (lado derecho del card) ────────────────
+// Componente propio para que React tenga tipo estable en reconciliación
+function ReventaStatus({ costoReventa, pagosProvReventa }) {
+  const pagadoProv    = (pagosProvReventa||[]).reduce((a,p) => a + p.monto, 0);
+  const pendienteProv = Math.max(0, costoReventa - pagadoProv);
+  return (
+    <div style={{ fontSize:12, fontWeight:600, marginTop:4 }}>
+      <span style={{ color:"#92400e" }}>Reventa: {money(costoReventa)}</span>
+      {pendienteProv > 0
+        ? <span style={{ color:"#C62828", display:"block" }}>⚠ Prov: {money(pendienteProv)} pendiente</span>
+        : <span style={{ color:"#2E7D32", display:"block" }}>✓ Proveedor pagado</span>
+      }
+    </div>
+  );
+}
+
+// ─── Sub-componente: formulario pago proveedor reventa ────────────────────────
+// Componente propio = React puede hacer reconciliación estable (sin IIFE)
+function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onFormChange, onGuardar }) {
+  const pagadoProv    = (venta.pagosProvReventa||[]).reduce((a,p) => a + p.monto, 0);
+  const pendienteProv = Math.max(0, venta.costoReventa - pagadoProv);
+  const pagoPct       = venta.costoReventa > 0 ? Math.min(100, (pagadoProv / venta.costoReventa) * 100) : 100;
+
+  return (
+    <div style={{ marginTop:8, paddingTop:10, borderTop:"1px solid #fde68a" }}>
+      {/* Header con estado */}
+      <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5 }}>
+        <span style={{ color:"#92400e", fontWeight:700 }}>Pago al proveedor (reventa)</span>
+        <span style={{ fontWeight:700, color: pendienteProv > 0 ? "#C62828" : "#2E7D32" }}>
+          {pendienteProv > 0 ? `Pendiente: ${money(pendienteProv)}` : "✓ Cancelado"}
+        </span>
+      </div>
+
+      {/* Barra de progreso */}
+      <div style={{ height:6, background:"#fef3c7", borderRadius:99, marginBottom:6 }}>
+        <div style={{ height:"100%", width:`${pagoPct}%`, background: pendienteProv > 0 ? "#f59e0b" : "#10b981", borderRadius:99, transition:"width .4s" }} />
+      </div>
+
+      {/* Pagos realizados */}
+      {(venta.pagosProvReventa||[]).length > 0 && (
+        <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:8 }}>
+          {venta.pagosProvReventa.map((p) => (
+            <div key={p.id} style={{ fontSize:11, color:"#92400e", display:"flex", gap:6 }}>
+              <span>✓</span>
+              <span>
+                {p.fecha}: {money(p.monto)}
+                {p.cuentaId ? ` → ${cuentas.find(c=>c.id===p.cuentaId)?.nombre||"?"}` : ""}
+                {p.nota ? ` · ${p.nota}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Botón / Formulario */}
+      {pendienteProv > 0 && !isOpen && (
+        <button
+          style={{ fontSize:12, fontWeight:700, background:"#fef3c7", color:"#92400e", border:"1px solid #fde68a", borderRadius:7, padding:"5px 12px", cursor:"pointer" }}
+          onClick={onOpen}>
+          + Registrar pago al proveedor
+        </button>
+      )}
+
+      {pendienteProv > 0 && isOpen && (
+        <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <div>
+              <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Fecha</div>
+              <input type="date" style={inputStyle} value={form.fecha}
+                onChange={(e) => onFormChange({...form, fecha:e.target.value})} />
+            </div>
+            <div>
+              <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Monto</div>
+              <input type="number" style={inputStyle} value={form.monto}
+                onChange={(e) => onFormChange({...form, monto:e.target.value})} />
+            </div>
+            <div>
+              <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Cuenta de salida</div>
+              <select style={selectStyle} value={form.cuentaId}
+                onChange={(e) => onFormChange({...form, cuentaId:e.target.value})}>
+                <option value="">Sin asignar</option>
+                {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Nota</div>
+              <input style={inputStyle} autoComplete="off" placeholder="Ej: Transferencia Nequi" value={form.nota}
+                onChange={(e) => onFormChange({...form, nota:e.target.value})} />
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button
+              style={{ flex:1, background:"#92400e", color:"white", border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, fontSize:13, cursor:"pointer" }}
+              onClick={onGuardar}>
+              ✓ Guardar pago
+            </button>
+            <button
+              style={{ background:"#F5F5F5", color:"#616161", border:"none", borderRadius:8, padding:"9px 12px", fontWeight:600, fontSize:13, cursor:"pointer" }}
+              onClick={onClose}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const histList  = { display:"flex", flexDirection:"column", gap:10 };
 const histTop   = { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 };
 const itemsList = { display:"flex", flexDirection:"column", gap:8, margin:"4px 0" };

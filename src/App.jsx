@@ -376,12 +376,18 @@ export default function App() {
   }
 
   function pagarProveedorReventa(ventaId, pago) {
-    setVentas((prev) => prev.map((v) => {
-      if (v.id !== ventaId) return v;
-      const next = { ...v, pagosProvReventa: [...(v.pagosProvReventa||[]), { id:uid(), ...pago }] };
-      dbSave("ventas", next);
+    const nuevoPago = { id:uid(), ...pago };
+    let ventaActualizada = null;
+    setVentas((prev) => {
+      const next = prev.map((v) => {
+        if (v.id !== ventaId) return v;
+        ventaActualizada = { ...v, pagosProvReventa: [...(v.pagosProvReventa||[]), nuevoPago] };
+        return ventaActualizada;
+      });
       return next;
-    }));
+    });
+    // dbSave usa la referencia capturada, no un side-effect dentro del updater
+    setTimeout(() => { if (ventaActualizada) dbSave("ventas", ventaActualizada); }, 0);
   }
 
   // ── Loading / error screens ───────────────────────────────────────────────

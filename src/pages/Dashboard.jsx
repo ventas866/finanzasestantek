@@ -83,8 +83,15 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
   const thisMonth = currentMonthStr();
   const lastMonth = prevMonthStr();
 
-  // ── Current & previous month aggregates ──────────────────────────────────
+  // ── Current & previous month aggregates (respects mesFiltro) ─────────────
   const monthStats = useMemo(() => {
+    // Si hay filtro activo, usarlo como "mes seleccionado"; sino el mes actual
+    const selMonth = mesFiltro || thisMonth;
+    // Mes anterior relativo al mes seleccionado
+    const [y, mo] = selMonth.split("-").map(Number);
+    const pd = new Date(y, mo - 2, 1);
+    const prevM = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, "0")}`;
+
     function calc(mes) {
       const vv = ventas.filter((v) => isoMonth(v.fecha) === mes);
       const gg = gastos.filter((g) => isoMonth(g.fecha) === mes);
@@ -93,8 +100,8 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       const gasto    = gg.reduce((a, g) => a + g.valor, 0);
       return { ingresos, costo, gasto, ganancia: ingresos - costo - gasto };
     }
-    return { curr: calc(thisMonth), prev: calc(lastMonth) };
-  }, [ventas, gastos, thisMonth, lastMonth]);
+    return { curr: calc(selMonth), prev: calc(prevM), selMonth };
+  }, [ventas, gastos, thisMonth, mesFiltro]);
 
   // ── All-time metrics (for detailed panels below) ──────────────────────────
   const meses = useMemo(() => lastNMonths(12), []);
@@ -222,10 +229,10 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
         <div>
           <h2 style={{ margin:0, fontSize:20, fontWeight:700, color:C.ink }}>
-            📊 {currentMonthLabel()}
+            📊 {mesFiltro ? monthLabel(mesFiltro + "-01") : currentMonthLabel()}
           </h2>
           <p style={{ margin:"3px 0 0", fontSize:13, color:C.ink4 }}>
-            Resumen del mes actual · comparado con el mes anterior
+            {mesFiltro ? "Mes seleccionado · comparado con el mes anterior" : "Resumen del mes actual · comparado con el mes anterior"}
           </p>
         </div>
         <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>

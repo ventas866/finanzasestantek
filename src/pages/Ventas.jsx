@@ -1,10 +1,32 @@
-import { useMemo } from "react";
-import { money, uid } from "../utils.js";
+import { useMemo, useState } from "react";
+import { money, uid, today, isoMonth } from "../utils.js";
 import {
   Panel, SectionHeader, FormSection, FormGrid, Field, inputStyle, selectStyle,
-  AddLineBtn, RemoveBtn, TotalBox, PrimaryBtn, CancelBtn,
-  EditBtn, DeleteBtn, SkuPill, EmptyState, Alert, OrigenBadge, PagoBadge, PagosBuilder, s,
+  AddLineBtn, RemoveBtn, TotalBox, PrimaryBtn, CancelBtn, ExportBtn,
+  EditBtn, DeleteBtn, SkuPill, EmptyState, Alert, OrigenBadge, PagoBadge, PagosBuilder,
+  SearchInput, PillFilter, useConfirm, s,
 } from "../ui.jsx";
+
+function exportVentasCSV(ventas, cuentas) {
+  const headers = ["Fecha","Cliente","Origen","Forma de pago","Subtotal","Costo","Utilidad","Total"];
+  const rows    = ventas.map((v) => [
+    v.fecha,
+    `"${(v.cliente||"").replace(/"/g,'""')}"`,
+    v.origen||"",
+    v.formaPago||"",
+    v.subtotal||0,
+    v.costoTotal||0,
+    v.utilidad||0,
+    v.total||0,
+  ]);
+  const csv  = [headers, ...rows].map((r) => r.join(",")).join("\n");
+  const blob = new Blob(["\uFEFF"+csv], { type:"text/csv;charset=utf-8;" });
+  const a    = document.createElement("a");
+  a.href     = URL.createObjectURL(blob);
+  a.download = `ventas_${today()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 export default function Ventas({
   ventas, catalogo, cuentas,
@@ -15,7 +37,47 @@ export default function Ventas({
   pagos, setPagos,
   pagoLinea, setPagoLinea,
   onSave, onEdit, onDelete, onCancel,
+  onPagarProveedorReventa,
 }) {
+  const [pagoProvOpen, setPagoProvOpen] = useState(null);
+  const [pagoProvForm, setPagoProvForm] = useState({ fecha: today(), monto:"", cuentaId:"", nota:"" });
+  const [search,    setSearch]    = useState("");
+  const [filtOrigen,setFiltOrigen]= useState("todos");
+  const [filtPer,   setFiltPer]   = useState("todos");
+
+  const { confirm, modal: confirmModal } = useConfirm();
+
+  async function handleDelete(id) {
+    const ok = await confirm("¿Eliminar esta venta? Esta acción no se puede deshacer.");
+    if (ok) onDelete(id);
+  }
+
+  const ventasFiltradas = useMemo(() => {
+    let lista = [...ventas].sort((a,b) => b.fecha.localeCompare(a.fecha));
+    const q = search.trim().toLowerCase();
+    if (q) lista = lista.filter((v) =>
+      (v.cliente||"").toLowerCase().includes(q) ||
+      (v.descripcion||"").toLowerCase().includes(q) ||
+      (v.origen||"").toLowerCase().includes(q)
+    );
+    if (filtOrigen !== "todos") lista = lista.filter((v) => (v.origen||"") === filtOrigen);
+    if (filtPer === "mes") {
+      const d = new Date(); const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      lista = lista.filter((v) => isoMonth(v.fecha) === m);
+    } else if (filtPer === "anterior") {
+      const d = new Date(); d.setMonth(d.getMonth()-1);
+      const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      lista = lista.filter((v) => isoMonth(v.fecha) === m);
+    } else if (filtPer === "3m") {
+      const d = new Date(); d.setMonth(d.getMonth()-3);
+      lista = lista.filter((v) => v.fecha >= d.toISOString().slice(0,10));
+    }
+    return lista;
+  }, [ventas, search, filtOrigen, filtPer]);
+
+  const hasFilters = search || filtOrigen !== "todos" || filtPer !== "todos";
+  const origenes   = [...new Set(ventas.map((v) => v.origen).filter(Boolean))];
+
   const catalogoMap = useMemo(
     () => Object.fromEntries(catalogo.map((p) => [p.sku, p])),
     [catalogo]
@@ -69,9 +131,11 @@ export default function Ventas({
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+      {confirmModal}
       <SectionHeader
         title={editingId ? "Editando venta" : "Nueva venta"}
         subtitle="Registra ventas con múltiples productos y calcula utilidad automáticamente"
+        actions={<ExportBtn onClick={() => exportVentasCSV(ventas, cuentas)} label="Exportar CSV" />}
       />
 
       <div className="pg-2col">
@@ -201,8 +265,8 @@ export default function Ventas({
 
             {resumenVivo.costoReventa > 0 && (
               <div style={{ marginTop:8, padding:"10px 14px", background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, fontSize:13, color:"#92400e" }}>
-                <strong>Costo de reventa: {money(resumenVivo.costoReventa)}</strong><br/>
-                Recuerda registrar el pago al proveedor (Comerinvrc) en Cartera → Cuentas por pagar.
+                <strong>💡 Costo de reventa: {money(resumenVivo.costoReventa)}</strong><br/>
+                <span style={{ fontSize:12 }}>La caja recibirá el total de la venta. Después de guardar, registra el pago al proveedor directamente desde el historial de esta venta.</span>
               </div>
             )}
 
@@ -230,12 +294,42 @@ export default function Ventas({
         </div>
 
         {/* Historial */}
-        <Panel title={`Historial (${ventas.length})`}>
-          {ventas.length === 0 ? (
-            <EmptyState icon="📋" text="No hay ventas registradas aún." />
+        <Panel title={`Historial (${ventasFiltradas.length}${hasFilters ? " filtradas" : ""})`}>
+          {/* Filtros */}
+          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
+            <SearchInput value={search} onChange={setSearch} placeholder="Buscar cliente, descripción u origen..." />
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+              <PillFilter
+                value={filtPer}
+                onChange={setFiltPer}
+                options={[
+                  { value:"todos",    label:"Todo" },
+                  { value:"mes",      label:"Este mes" },
+                  { value:"anterior", label:"Mes ant." },
+                  { value:"3m",       label:"3 meses" },
+                ]}
+              />
+              {origenes.length > 1 && (
+                <select style={{ ...selectStyle, minWidth:160, flex:1 }} value={filtOrigen}
+                  onChange={(e) => setFiltOrigen(e.target.value)}>
+                  <option value="todos">Todos los orígenes</option>
+                  {origenes.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              )}
+              {hasFilters && (
+                <button onClick={() => { setSearch(""); setFiltOrigen("todos"); setFiltPer("todos"); }}
+                  style={{ border:"1px solid #EF9A9A", background:"#FFEBEE", color:"#C62828", borderRadius:8, padding:"6px 12px", fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                  ✕ Limpiar
+                </button>
+              )}
+            </div>
+          </div>
+
+          {ventasFiltradas.length === 0 ? (
+            <EmptyState icon="📋" text={hasFilters ? "Sin ventas con ese filtro." : "No hay ventas registradas aún."} />
           ) : (
             <div style={histList}>
-              {ventas.map((item) => {
+              {ventasFiltradas.map((item) => {
                 const margen      = item.subtotal > 0 ? (item.utilidad / item.subtotal) * 100 : 0;
                 const creditoBase = item.pagos?.length > 0
                   ? Math.max(0, item.total - item.pagos.reduce((a, p) => a + p.monto, 0))
@@ -247,13 +341,13 @@ export default function Ventas({
                   <div key={item.id} style={s.histCard}>
                     <div style={histTop}>
                       <div>
-                        <div style={{ fontWeight:800, fontSize:15, color:"#0f172a" }}>{item.cliente}</div>
+                        <div style={{ fontWeight:700, fontSize:15, color:"#1A1A1A" }}>{item.cliente}</div>
                         <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap", marginTop:4 }}>
-                          <span style={{ fontSize:13, color:"#94a3b8" }}>{item.fecha}</span>
+                          <span style={{ fontSize:13, color:"#9E9E9E" }}>{item.fecha}</span>
                           <OrigenBadge origen={item.origen} />
                           <PagoBadge forma={item.formaPago || "Contado"} />
                           {(item.pagos || []).map((p, i) => (
-                            <span key={i} style={{ fontSize:12, color:"#064e3b", background:"#d1fae5", borderRadius:6, padding:"2px 8px" }}>
+                            <span key={i} style={{ fontSize:12, color:"#2E7D32", background:"#E8F5E9", borderRadius:6, padding:"2px 8px" }}>
                               {cuentas.find((c) => c.id === p.cuentaId)?.nombre}: {money(p.monto)}
                             </span>
                           ))}
@@ -280,11 +374,19 @@ export default function Ventas({
                             {pendiente > 0 ? `Por cobrar: ${money(pendiente)}` : "✓ Cobrado"}
                           </div>
                         )}
-                        {item.costoReventa > 0 && (
-                          <div style={{ fontSize:12, color:"#92400e", fontWeight:600 }}>
-                            Reventa: {money(item.costoReventa)}
-                          </div>
-                        )}
+                        {item.costoReventa > 0 && (() => {
+                          const pagadoProv = (item.pagosProvReventa||[]).reduce((a,p)=>a+p.monto,0);
+                          const pendienteProv = Math.max(0, item.costoReventa - pagadoProv);
+                          return (
+                            <div style={{ fontSize:12, fontWeight:600 }}>
+                              <span style={{ color:"#92400e" }}>Reventa: {money(item.costoReventa)}</span>
+                              {pendienteProv > 0
+                                ? <span style={{ color:"#dc2626", display:"block" }}>⚠ Prov: {money(pendienteProv)} pendiente</span>
+                                : <span style={{ color:"#059669", display:"block" }}>✓ Proveedor pagado</span>
+                              }
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
@@ -292,9 +394,106 @@ export default function Ventas({
                         <SkuPill key={x.id} label={`${x.sku} ×${x.cantidad}`} reventa={x.esReventa} />
                       ))}
                     </div>
+
+                    {/* ── Pago al proveedor de reventa ─────────────────── */}
+                    {item.costoReventa > 0 && (() => {
+                      const pagadoProv    = (item.pagosProvReventa||[]).reduce((a,p)=>a+p.monto,0);
+                      const pendienteProv = Math.max(0, item.costoReventa - pagadoProv);
+                      const pagoPct       = item.costoReventa > 0 ? Math.min(100,(pagadoProv/item.costoReventa)*100) : 100;
+                      const isOpen        = pagoProvOpen === item.id;
+                      return (
+                        <div style={{ marginTop:8, paddingTop:10, borderTop:"1px solid #fde68a" }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5 }}>
+                            <span style={{ color:"#92400e", fontWeight:700 }}>Pago al proveedor (reventa)</span>
+                            <span style={{ fontWeight:700, color: pendienteProv > 0 ? "#dc2626" : "#059669" }}>
+                              {pendienteProv > 0 ? `Pendiente: ${money(pendienteProv)}` : "✓ Cancelado"}
+                            </span>
+                          </div>
+                          <div style={{ height:6, background:"#fef3c7", borderRadius:99, marginBottom:6 }}>
+                            <div style={{ height:"100%", width:`${pagoPct}%`, background: pendienteProv > 0 ? "#f59e0b" : "#10b981", borderRadius:99, transition:"width .4s" }} />
+                          </div>
+                          {(item.pagosProvReventa||[]).length > 0 && (
+                            <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:8 }}>
+                              {item.pagosProvReventa.map((p) => (
+                                <div key={p.id} style={{ fontSize:11, color:"#92400e", display:"flex", gap:6 }}>
+                                  <span>✓</span>
+                                  <span>
+                                    {p.fecha}: {money(p.monto)}
+                                    {p.cuentaId ? ` → ${cuentas.find(c=>c.id===p.cuentaId)?.nombre||"?"}` : ""}
+                                    {p.nota ? ` · ${p.nota}` : ""}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {pendienteProv > 0 && !isOpen && (
+                            <button
+                              style={{ fontSize:12, fontWeight:700, background:"#fef3c7", color:"#92400e", border:"1px solid #fde68a", borderRadius:7, padding:"5px 12px", cursor:"pointer" }}
+                              onClick={() => {
+                                setPagoProvOpen(item.id);
+                                setPagoProvForm({ fecha:today(), monto:pendienteProv.toString(), cuentaId:"", nota:"" });
+                              }}>
+                              + Registrar pago al proveedor
+                            </button>
+                          )}
+                          {pendienteProv > 0 && isOpen && (
+                            <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:10 }}>
+                              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                                <div>
+                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Fecha</div>
+                                  <input type="date" style={inputStyle} value={pagoProvForm.fecha}
+                                    onChange={(e) => setPagoProvForm({...pagoProvForm, fecha:e.target.value})} />
+                                </div>
+                                <div>
+                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Monto</div>
+                                  <input type="number" style={inputStyle} value={pagoProvForm.monto}
+                                    onChange={(e) => setPagoProvForm({...pagoProvForm, monto:e.target.value})} />
+                                </div>
+                                <div>
+                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Cuenta de salida</div>
+                                  <select style={selectStyle} value={pagoProvForm.cuentaId}
+                                    onChange={(e) => setPagoProvForm({...pagoProvForm, cuentaId:e.target.value})}>
+                                    <option value="">Sin asignar</option>
+                                    {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:4 }}>Nota</div>
+                                  <input style={inputStyle} placeholder="Ej: Transferencia Nequi" value={pagoProvForm.nota}
+                                    onChange={(e) => setPagoProvForm({...pagoProvForm, nota:e.target.value})} />
+                                </div>
+                              </div>
+                              <div style={{ display:"flex", gap:8 }}>
+                                <button
+                                  style={{ flex:1, background:"#92400e", color:"white", border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, fontSize:13, cursor:"pointer" }}
+                                  onClick={() => {
+                                    const monto = Number(pagoProvForm.monto||0);
+                                    if (monto <= 0) return;
+                                    onPagarProveedorReventa(item.id, {
+                                      fecha: pagoProvForm.fecha,
+                                      monto,
+                                      cuentaId: pagoProvForm.cuentaId || null,
+                                      nota: pagoProvForm.nota,
+                                    });
+                                    setPagoProvOpen(null);
+                                  }}>
+                                  ✓ Guardar pago
+                                </button>
+                                <button
+                                  style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"9px 12px", fontWeight:600, fontSize:13, cursor:"pointer" }}
+                                  onClick={() => setPagoProvOpen(null)}>
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
                       <EditBtn onClick={() => onEdit(item)} />
-                      <DeleteBtn onClick={() => onDelete(item.id)} />
+                      <DeleteBtn onClick={() => handleDelete(item.id)} />
                     </div>
                   </div>
                 );

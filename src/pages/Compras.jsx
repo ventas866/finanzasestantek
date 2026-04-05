@@ -2,9 +2,30 @@ import { useMemo, useState } from "react";
 import { money, uid, today } from "../utils.js";
 import {
   Panel, SectionHeader, FormSection, FormGrid, Field, inputStyle, selectStyle,
-  AddLineBtn, RemoveBtn, TotalBox, PrimaryBtn, CancelBtn,
-  EditBtn, DeleteBtn, SkuPill, EmptyState, Alert, PagoBadge, PagosBuilder, s,
+  AddLineBtn, RemoveBtn, TotalBox, PrimaryBtn, CancelBtn, ExportBtn,
+  EditBtn, DeleteBtn, SkuPill, EmptyState, Alert, PagoBadge, PagosBuilder,
+  useConfirm, s,
 } from "../ui.jsx";
+
+function exportComprasCSV(compras, cuentas) {
+  const headers = ["Fecha","Proveedor","Forma de pago","Flete","Subtotal","Total","Nota"];
+  const rows    = compras.map((c) => [
+    c.fecha,
+    `"${(c.proveedor||"").replace(/"/g,'""')}"`,
+    c.formaPago||"",
+    c.flete||0,
+    c.subtotal||0,
+    c.total||0,
+    `"${(c.descripcion||"").replace(/"/g,'""')}"`,
+  ]);
+  const csv  = [headers, ...rows].map((r) => r.join(",")).join("\n");
+  const blob = new Blob(["\uFEFF"+csv], { type:"text/csv;charset=utf-8;" });
+  const a    = document.createElement("a");
+  a.href     = URL.createObjectURL(blob);
+  a.download = `compras_${today()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 export default function Compras({
   compras, catalogo, cuentas,
@@ -24,6 +45,12 @@ export default function Compras({
   const [histTab,     setHistTab]     = useState("todas");
   const [searchProv,  setSearchProv]  = useState("");
   const [filtProv,    setFiltProv]    = useState("");
+  const { confirm, modal: confirmModal } = useConfirm();
+
+  async function handleDelete(id) {
+    const ok = await confirm("¿Eliminar esta compra? Esta acción no se puede deshacer.");
+    if (ok) onDelete(id);
+  }
 
   const resumenVivo = useMemo(() => {
     const subtotal = items.reduce((a, i) => a + i.subtotal, 0);
@@ -108,9 +135,11 @@ export default function Compras({
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+      {confirmModal}
       <SectionHeader
         title={editingId ? "Editando compra" : "Nueva compra"}
         subtitle="Registra órdenes de compra con múltiples productos y forma de pago"
+        actions={<ExportBtn onClick={() => exportComprasCSV(compras, cuentas)} label="Exportar CSV" />}
       />
 
       {/* Stats summary */}
@@ -402,7 +431,7 @@ export default function Compras({
                         {/* Acciones */}
                         <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:12 }}>
                           <EditBtn onClick={() => onEdit(item)} />
-                          <DeleteBtn onClick={() => onDelete(item.id)} />
+                          <DeleteBtn onClick={() => handleDelete(item.id)} />
                         </div>
                       </div>
                     </div>

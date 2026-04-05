@@ -203,7 +203,6 @@ export default function App() {
   }
 
   function eliminarCompra(id) {
-    if (!window.confirm("¿Eliminar esta compra?")) return;
     setCompras((p) => p.filter((x)=>x.id!==id));
     dbDelete("compras", id);
     if (editingCompraId === id) limpiarCompraForm();
@@ -262,7 +261,6 @@ export default function App() {
   }
 
   function eliminarVenta(id) {
-    if (!window.confirm("¿Eliminar esta venta?")) return;
     setVentas((p)=>p.filter((x)=>x.id!==id));
     dbDelete("ventas", id);
     if (editingVentaId===id) limpiarVentaForm();
@@ -296,7 +294,6 @@ export default function App() {
   }
 
   function eliminarGasto(id) {
-    if (!window.confirm("¿Eliminar este gasto?")) return;
     setGastos((p)=>p.filter((g)=>g.id!==id));
     dbDelete("gastos", id);
     if (editingGastoId===id) { setEditingGastoId(null); setFormGasto({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" }); }
@@ -373,6 +370,15 @@ export default function App() {
     setVentas((p) => p.map((v) => {
       if (v.id!==ventaId) return v;
       const next = { ...v, abonos:[...(v.abonos||[]),abono] };
+      dbSave("ventas", next);
+      return next;
+    }));
+  }
+
+  function pagarProveedorReventa(ventaId, pago) {
+    setVentas((prev) => prev.map((v) => {
+      if (v.id !== ventaId) return v;
+      const next = { ...v, pagosProvReventa: [...(v.pagosProvReventa||[]), { id:uid(), ...pago }] };
       dbSave("ventas", next);
       return next;
     }));
@@ -527,6 +533,7 @@ export default function App() {
               pagos={ventaPagos} setPagos={setVentaPagos}
               pagoLinea={ventaPagoLinea} setPagoLinea={setVentaPagoLinea}
               onSave={guardarVenta} onEdit={editarVenta} onDelete={eliminarVenta} onCancel={limpiarVentaForm}
+              onPagarProveedorReventa={pagarProveedorReventa}
             />
           )}
           {pagina==="Caja"         && (

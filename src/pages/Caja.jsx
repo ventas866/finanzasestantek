@@ -49,6 +49,10 @@ export default function Caja({
         (v.abonos || []).forEach((ab) => {
           if (ab.cuentaId === cuenta.id) saldo += ab.valor;
         });
+        // Pagos al proveedor de reventa salen de la caja
+        (v.pagosProvReventa || []).forEach((p) => {
+          if (p.cuentaId === cuenta.id) saldo -= p.monto;
+        });
       });
 
       compras.forEach((c) => {

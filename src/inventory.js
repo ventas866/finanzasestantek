@@ -61,17 +61,7 @@ export function buildInventory(
     }
   }
 
-  // Ajustes manuales
-  for (const aj of ajustes) {
-    const actual = map.get(aj.sku);
-    if (!actual) continue;
-    map.set(aj.sku, {
-      ...actual,
-      stock: Math.max(0, actual.stock + Number(aj.cantidad || 0)),
-    });
-  }
-
-  // Conversiones (lote → piezas)
+  // Conversiones (lote → piezas) — ANTES de ajustes para que el ajuste final override todo
   for (const conv of conversiones) {
     for (const pieza of conv.piezas || []) {
       const actual = map.get(pieza.sku);
@@ -84,6 +74,16 @@ export function buildInventory(
         : actual.costo;
       map.set(pieza.sku, { ...actual, stock: nuevoStock, costo: nuevoCosto });
     }
+  }
+
+  // Ajustes manuales — ÚLTIMO: corrección física que sobreescribe el cálculo anterior
+  for (const aj of ajustes) {
+    const actual = map.get(aj.sku);
+    if (!actual) continue;
+    map.set(aj.sku, {
+      ...actual,
+      stock: Math.max(0, actual.stock + Number(aj.cantidad || 0)),
+    });
   }
 
   // Calcular margen estimado por producto

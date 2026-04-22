@@ -306,6 +306,26 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     [r.ventasPorOrigen]
   );
 
+  // ── Distribución a accionistas (siempre histórico total) ──────────────────
+  const distribucion = useMemo(() => {
+    const totalIngresos      = ventas.reduce((a, v) => a + v.total, 0);
+    const totalComprasBase   = compras.reduce((a, c) => a + c.total, 0);
+    const totalPagosReventa  = ventas.reduce((a, v) =>
+      a + (v.pagosProvReventa || []).reduce((b, p) => b + p.monto, 0), 0);
+    const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
+    const totalEgresos       = totalComprasBase + totalPagosReventa + totalGastosOp;
+    const totalCapital       = inversiones.reduce((a, i) => a + i.valor, 0);
+    const cajaDisponible     = totalCapital + totalIngresos - totalEgresos;
+    const conStock           = catalogo.filter((x) => x.stock > 0);
+    const valorInv           = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
+    const saldoDistribuible  = cajaDisponible - valorInv;
+    return {
+      totalIngresos, totalComprasBase, totalPagosReventa,
+      totalGastosOp, totalEgresos, totalCapital,
+      cajaDisponible, valorInv, saldoDistribuible,
+    };
+  }, [ventas, compras, gastos, inversiones, catalogo]);
+
   const hasData = ventas.length > 0;
 
   return (
@@ -538,6 +558,56 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
         </div>
       </div>
 
+      {/* ── Distribución a accionistas ───────────────────────────────────── */}
+      <div style={{ ...panelStyle, borderTop: `3px solid ${distribucion.saldoDistribuible >= 0 ? C.positive : C.negative}` }}>
+        <div style={{ ...panelHeader, marginBottom: 20 }}>
+          <div>
+            <h3 style={{ ...panelTitle, fontSize: 16 }}>💰 Posición distribuible a accionistas</h3>
+            <p style={{ margin:"3px 0 0", fontSize:12, color:C.ink4 }}>
+              Datos históricos totales · cuánto se puede repartir luego de cubrir inventario y deudas
+            </p>
+          </div>
+          <span style={{ fontSize:11, padding:"4px 10px", background:C.brandLight, color:C.brand, borderRadius:6, fontWeight:700, flexShrink:0 }}>
+            HISTÓRICO
+          </span>
+        </div>
+        <div style={{ display:"flex", gap:20, flexWrap:"wrap", alignItems:"stretch" }}>
+          {/* Desglose */}
+          <div style={{ flex:1, minWidth:260, display:"flex", flexDirection:"column", gap:9 }}>
+            <DistRow label="(+) Capital aportado por accionistas" value={distribucion.totalCapital}  color="#1565C0" />
+            <DistRow label="(+) Ingresos por ventas"              value={distribucion.totalIngresos} color={C.positive} />
+            <div style={{ height:1, background:C.border, margin:"2px 0" }} />
+            <div style={{ fontSize:11, fontWeight:700, color:C.ink4, textTransform:"uppercase", letterSpacing:".5px" }}>Egresos</div>
+            <DistRow label="Compras de inventario"         value={distribucion.totalComprasBase}  color={C.negative} indent />
+            <DistRow label="Pagos proveedores reventa"     value={distribucion.totalPagosReventa} color={C.negative} indent />
+            <DistRow label="Gastos operativos"             value={distribucion.totalGastosOp}     color={C.negative} indent />
+            <div style={{ height:1, background:C.border, margin:"2px 0" }} />
+            <DistRow label="= Caja disponible (teórica)"  value={distribucion.cajaDisponible}    color={distribucion.cajaDisponible >= 0 ? C.positive : C.negative} bold />
+            <DistRow label="(−) Inventario inmovilizado"  value={distribucion.valorInv}           color="#E65100" />
+          </div>
+          {/* Resultado */}
+          <div style={{
+            minWidth: 200, display:"flex", flexDirection:"column", justifyContent:"center",
+            alignItems:"center", padding:"24px 28px",
+            background: distribucion.saldoDistribuible >= 0 ? C.posBg : C.negBg,
+            borderRadius:14, border:`1.5px solid ${distribucion.saldoDistribuible >= 0 ? "#A5D6A7" : "#EF9A9A"}`,
+            gap:10, textAlign:"center",
+          }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.ink4, textTransform:"uppercase", letterSpacing:".5px" }}>
+              SALDO DISTRIBUIBLE
+            </div>
+            <div style={{ fontSize:36, fontWeight:700, color: distribucion.saldoDistribuible >= 0 ? C.positive : C.negative, lineHeight:1 }}>
+              {money(distribucion.saldoDistribuible)}
+            </div>
+            <div style={{ fontSize:12, color:C.ink4, maxWidth:160 }}>
+              {distribucion.saldoDistribuible >= 0
+                ? "Disponible para repartir a los socios"
+                : "Capital insuficiente para distribución"}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ── Ventas por origen + Gastos por categoría ─────────────────────── */}
       <div className="pg-two">
         <div style={panelStyle}>
@@ -740,6 +810,20 @@ function AlertCard({ type, title, text }) {
         <div style={{ fontWeight:700, color:c.title, marginBottom:4 }}>{title}</div>
         <div style={{ fontSize:13, color:c.title, opacity:.8 }}>{text}</div>
       </div>
+    </div>
+  );
+}
+
+function DistRow({ label, value, color, bold, indent }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, paddingLeft: indent ? 14 : 0 }}>
+      <span style={{ fontSize:13, color: bold ? C.ink : C.ink3, fontWeight: bold ? 700 : 500, minWidth:0 }}>
+        {indent && <span style={{ color:C.ink4, marginRight:4 }}>·</span>}
+        {label}
+      </span>
+      <span style={{ fontSize:13, fontWeight: bold ? 700 : 600, color: color || C.ink, flexShrink:0 }}>
+        {money(value)}
+      </span>
     </div>
   );
 }

@@ -46,6 +46,10 @@ export default function Ventas({
   const [filtOrigen,setFiltOrigen]= useState("todos");
   const [filtPer,   setFiltPer]   = useState("todos");
 
+  // ── Filtro de categoría para el selector de producto ───────────────────
+  const [lineaCat,    setLineaCat]    = useState("Todos");
+  const [lineaSearch, setLineaSearch] = useState("");
+
   // ── Edición inline de ítems ─────────────────────────────────────────────
   const [editingItemId, setEditingItemId] = useState(null);
   const [editItemForm,  setEditItemForm]  = useState({ cantidad:"", precioUnitario:"", costoUnitario:"" });
@@ -92,6 +96,30 @@ export default function Ventas({
     () => Object.fromEntries(catalogo.map((p) => [p.sku, p])),
     [catalogo]
   );
+
+  const CAT_ORDER_V = ["Viga","Marco","Galvanizado","Madera económica","Madera premium","Pesada","Servicio"];
+
+  const catsLinea = useMemo(() => {
+    const cats = [...new Set(catalogo.map((p) => p.categoria))];
+    return cats.sort((a, b) => {
+      const ia = CAT_ORDER_V.indexOf(a), ib = CAT_ORDER_V.indexOf(b);
+      if (ia >= 0 && ib >= 0) return ia - ib;
+      if (ia >= 0) return -1;
+      if (ib >= 0) return 1;
+      return a.localeCompare(b, "es");
+    });
+  }, [catalogo]);
+
+  const catalogoLinea = useMemo(() => {
+    let items = [...catalogo];
+    if (lineaCat !== "Todos") items = items.filter((p) => p.categoria === lineaCat);
+    const q = lineaSearch.trim().toLowerCase();
+    if (q) items = items.filter((p) =>
+      p.nombre.toLowerCase().includes(q) ||
+      p.sku.toLowerCase().includes(q)
+    );
+    return items.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }, [catalogo, lineaCat, lineaSearch]);
 
   const resumenVivo = useMemo(() => {
     const subtotal     = items.reduce((a, i) => a + i.subtotalVenta, 0);
@@ -235,15 +263,56 @@ export default function Ventas({
             <FormSection label="Agregar productos">
               <FormGrid>
                 <Field label="Producto / SKU" wide>
+                  {/* Chips de categoría */}
+                  <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:8 }}>
+                    <button
+                      onClick={() => { setLineaCat("Todos"); setLineaSearch(""); }}
+                      style={{ ...vCatChip, ...(lineaCat === "Todos" ? vCatChipAll : {}) }}>
+                      Todos
+                    </button>
+                    {catsLinea.map((cat) => (
+                      <button key={cat}
+                        onClick={() => {
+                          setLineaCat(cat);
+                          setLineaSearch("");
+                          const first = catalogo.filter((p) => p.categoria === cat)[0];
+                          if (first) setLinea((prev) => ({ ...prev, sku:first.sku, esReventa:first.tipo==="Reventa" }));
+                        }}
+                        style={{ ...vCatChip, ...(lineaCat === cat ? vCatChipActive : {}) }}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Búsqueda de tamaño/nombre */}
+                  <input
+                    style={{ ...selectStyle, marginBottom:6, display:"block", width:"100%", boxSizing:"border-box" }}
+                    placeholder={lineaCat === "Todos" ? "Buscar por nombre, SKU o tamaño..." : `Buscar en ${lineaCat}...`}
+                    value={lineaSearch}
+                    onChange={(e) => {
+                      setLineaSearch(e.target.value);
+                      // Auto-seleccionar el primer resultado
+                      const q = e.target.value.trim().toLowerCase();
+                      if (q) {
+                        const match = catalogoLinea.find((p) =>
+                          p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+                        );
+                        if (match) setLinea((prev) => ({ ...prev, sku:match.sku, esReventa:match.tipo==="Reventa" }));
+                      }
+                    }}
+                  />
+                  {/* Selector filtrado + botón nuevo */}
                   <div style={{ display:"flex", gap:6 }}>
                     <select style={{ ...selectStyle, flex:1 }} value={linea.sku}
                       onChange={(e) => {
                         const info = catalogoMap[e.target.value];
                         setLinea({ ...linea, sku:e.target.value, esReventa: info?.tipo === "Reventa" });
                       }}>
-                      {catalogo.map((p) => (
-                        <option key={p.sku} value={p.sku}>{p.sku} · {p.nombre}</option>
-                      ))}
+                      {catalogoLinea.length === 0
+                        ? <option value="">Sin resultados</option>
+                        : catalogoLinea.map((p) => (
+                            <option key={p.sku} value={p.sku}>{p.sku} · {p.nombre}</option>
+                          ))
+                      }
                     </select>
                     <button
                       onClick={() => { setNuevoProdError(""); setShowNuevoProd(true); }}
@@ -252,6 +321,12 @@ export default function Ventas({
                       ＋ Nuevo
                     </button>
                   </div>
+                  {catalogoLinea.length > 0 && (
+                    <div style={{ fontSize:11, color:"#94a3b8", marginTop:4 }}>
+                      {catalogoLinea.length} productos{lineaCat !== "Todos" ? ` en ${lineaCat}` : ""}
+                      {lineaSearch && ` · "${lineaSearch}"`}
+                    </div>
+                  )}
                 </Field>
                 <Field label="Cantidad">
                   <input type="number" style={inputStyle} value={linea.cantidad}
@@ -743,9 +818,12 @@ function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onForm
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-const histList  = { display:"flex", flexDirection:"column", gap:10 };
-const histTop   = { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" };
-const itemsList = { display:"flex", flexDirection:"column", gap:8, margin:"4px 0" };
-const itemRow   = { display:"flex", justifyContent:"space-between", alignItems:"center", background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"10px 14px", gap:12 };
-const itemLeft  = { display:"flex", flexDirection:"column", gap:2, flex:1 };
-const itemRight = { display:"flex", alignItems:"center", gap:8, flexShrink:0 };
+const histList    = { display:"flex", flexDirection:"column", gap:10 };
+const histTop     = { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" };
+const itemsList   = { display:"flex", flexDirection:"column", gap:8, margin:"4px 0" };
+const itemRow     = { display:"flex", justifyContent:"space-between", alignItems:"center", background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:"10px 14px", gap:12 };
+const itemLeft    = { display:"flex", flexDirection:"column", gap:2, flex:1 };
+const itemRight   = { display:"flex", alignItems:"center", gap:8, flexShrink:0 };
+const vCatChip    = { border:"1px solid #e2e8f0", background:"white", color:"#475569", borderRadius:20, padding:"4px 11px", fontSize:12, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" };
+const vCatChipActive = { background:"#0f172a", border:"1px solid #0f172a", color:"white" };
+const vCatChipAll    = { background:"#f97316", border:"1px solid #f97316", color:"white" };

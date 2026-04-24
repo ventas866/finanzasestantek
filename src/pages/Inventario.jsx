@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, Fragment } from "react";
 import { money, uid, today } from "../utils.js";
 import {
   Panel, SectionHeader, DataTable, CategoriaBadge, OrigenBadge, StockBadge, EmptyState,
@@ -43,8 +43,23 @@ export default function Inventario({
       i.nombre.toLowerCase().includes(q) ||
       i.categoria.toLowerCase().includes(q)
     );
-    return items;
+    return [...items].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [catalogo, busqueda, filtroCategoria, filtroStock]);
+
+  const CAT_ORDER = ["Viga","Marco","Galvanizado","Madera económica","Madera premium","Pesada","Servicio"];
+
+  const grouped = useMemo(() => {
+    if (filtroCategoria !== "Todos") return null; // flat view when specific cat selected
+    const map = {};
+    filtrado.forEach((i) => { (map[i.categoria] = map[i.categoria] || []).push(i); });
+    return Object.entries(map).sort(([a], [b]) => {
+      const ia = CAT_ORDER.indexOf(a), ib = CAT_ORDER.indexOf(b);
+      if (ia >= 0 && ib >= 0) return ia - ib;
+      if (ia >= 0) return -1;
+      if (ib >= 0) return 1;
+      return a.localeCompare(b, "es");
+    });
+  }, [filtrado, filtroCategoria]);
 
   const valorCosto = filtrado.reduce((a, i) => a + i.stock * i.costo, 0);
   const valorVenta = filtrado.reduce((a, i) => a + i.stock * (i.precioVenta || 0), 0);
@@ -270,65 +285,42 @@ export default function Inventario({
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
                 <thead>
                   <tr>
-                    {["SKU","Producto","Categoría","Tipo","Stock","Costo prom.","Precio venta","Margen","Acciones"].map((h) => (
+                    {["SKU","Producto","Tipo","Stock","Costo prom.","Precio venta","Margen","Acciones"].map((h) => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrado.map((item, idx) => {
-                    const isPrecioEdit = editingPrecio?.sku === item.sku;
-                    return (
-                      <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(isPrecioEdit ? { background:"#fff7ed" } : {}) }}>
-                        <td style={tdStyle}>
-                          <span style={{ fontFamily:"monospace", color:"#64748b" }}>{item.sku}</span>
-                          {item.isCustom && <span style={{ marginLeft:4, fontSize:10, background:"#e0e7ff", color:"#4338ca", borderRadius:4, padding:"1px 5px", fontWeight:700 }}>CUSTOM</span>}
-                        </td>
-                        <td style={tdStyle}><span style={{ fontWeight:600 }}>{item.nombre}</span></td>
-                        <td style={tdStyle}><CategoriaBadge cat={item.categoria} /></td>
-                        <td style={tdStyle}><OrigenBadge origen={item.tipo} /></td>
-                        <td style={tdStyle}><StockBadge stock={item.stock} tipo={item.tipo} /></td>
-                        <td style={tdStyle}>
-                          {item.costo > 0
-                            ? <span style={{ fontWeight:700 }}>{money(item.costo)}</span>
-                            : <span style={{ color:"#94a3b8" }}>—</span>}
-                        </td>
-                        <td style={tdStyle}>
-                          {item.precioVenta > 0
-                            ? (
-                              <button
-                                onClick={() => setEditingPrecio({ sku: item.sku, valor: item.precioVenta })}
-                                style={{ border:"none", background:"transparent", cursor:"pointer", fontWeight:700, color:"#059669", fontSize:13, padding:"2px 4px", borderRadius:4, textDecoration:"underline dotted" }}
-                                title="Click para editar precio">
-                                {money(item.precioVenta)} ✎
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => setEditingPrecio({ sku: item.sku, valor: "" })}
-                                style={{ border:"1px dashed #cbd5e1", background:"transparent", cursor:"pointer", fontWeight:600, color:"#94a3b8", fontSize:12, padding:"3px 8px", borderRadius:6 }}>
-                                + Precio
-                              </button>
-                            )}
-                        </td>
-                        <td style={tdStyle}>
-                          {item.margenPct !== null && item.margenPct !== undefined
-                            ? (
-                              <span style={{ fontWeight:700, color: item.margenPct >= 30 ? "#059669" : item.margenPct >= 15 ? "#f59e0b" : "#dc2626" }}>
-                                {item.margenPct}%
+                  {grouped
+                    /* ── Vista agrupada (Todos) ─────────────────────────── */
+                    ? grouped.map(([cat, catItems]) => (
+                      <Fragment key={cat}>
+                        <tr>
+                          <td colSpan={8} style={groupHeaderTd}>
+                            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                              <CategoriaBadge cat={cat} />
+                              <span style={{ fontSize:12, color:"#94a3b8", fontWeight:600 }}>
+                                {catItems.length} productos · {catItems.filter(i=>i.stock>0).length} con stock
+                                {catItems.reduce((a,i)=>a+i.stock*i.costo,0) > 0 &&
+                                  ` · ${money(catItems.reduce((a,i)=>a+i.stock*i.costo,0))} @ costo`}
                               </span>
-                            )
-                            : <span style={{ color:"#94a3b8" }}>—</span>}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign:"right" }}>
-                          {item.isCustom && (
-                            <DeleteBtn onClick={() => {
-                              if (window.confirm(`¿Eliminar el producto ${item.sku}?`)) onDeleteProducto(item.id);
-                            }} />
-                          )}
-                        </td>
+                            </div>
+                          </td>
+                        </tr>
+                        {catItems.map((item, idx) => (
+                          <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}) }}>
+                            {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto)}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))
+                    /* ── Vista plana (categoría específica) ─────────────── */
+                    : filtrado.map((item, idx) => (
+                      <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}) }}>
+                        {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto)}
                       </tr>
-                    );
-                  })}
+                    ))
+                  }
                 </tbody>
               </table>
             </div>
@@ -817,13 +809,58 @@ function InvKpi({ label, value, sub, color }) {
   );
 }
 
+// ─── Row renderer (shared between flat and grouped views) ─────────────────────
+function renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto) {
+  return (
+    <>
+      <td style={tdStyle}>
+        <span style={{ fontFamily:"monospace", color:"#64748b", fontSize:12 }}>{item.sku}</span>
+        {item.isCustom && <span style={{ marginLeft:4, fontSize:10, background:"#e0e7ff", color:"#4338ca", borderRadius:4, padding:"1px 5px", fontWeight:700 }}>CUSTOM</span>}
+      </td>
+      <td style={tdStyle}><span style={{ fontWeight:600 }}>{item.nombre}</span></td>
+      <td style={tdStyle}><OrigenBadge origen={item.tipo} /></td>
+      <td style={tdStyle}><StockBadge stock={item.stock} tipo={item.tipo} /></td>
+      <td style={tdStyle}>
+        {item.costo > 0 ? <span style={{ fontWeight:700 }}>{money(item.costo)}</span> : <span style={{ color:"#94a3b8" }}>—</span>}
+      </td>
+      <td style={tdStyle}>
+        {item.precioVenta > 0 ? (
+          <button onClick={() => setEditingPrecio({ sku:item.sku, valor:item.precioVenta })}
+            style={{ border:"none", background:"transparent", cursor:"pointer", fontWeight:700, color:"#059669", fontSize:13, padding:"2px 4px", borderRadius:4, textDecoration:"underline dotted" }}
+            title="Click para editar precio">
+            {money(item.precioVenta)} ✎
+          </button>
+        ) : (
+          <button onClick={() => setEditingPrecio({ sku:item.sku, valor:"" })}
+            style={{ border:"1px dashed #cbd5e1", background:"transparent", cursor:"pointer", fontWeight:600, color:"#94a3b8", fontSize:12, padding:"3px 8px", borderRadius:6 }}>
+            + Precio
+          </button>
+        )}
+      </td>
+      <td style={tdStyle}>
+        {item.margenPct !== null && item.margenPct !== undefined ? (
+          <span style={{ fontWeight:700, color: item.margenPct >= 30 ? "#059669" : item.margenPct >= 15 ? "#f59e0b" : "#dc2626" }}>
+            {item.margenPct}%
+          </span>
+        ) : <span style={{ color:"#94a3b8" }}>—</span>}
+      </td>
+      <td style={{ ...tdStyle, textAlign:"right" }}>
+        {item.isCustom && (
+          <DeleteBtn onClick={() => { if (window.confirm(`¿Eliminar ${item.sku}?`)) onDeleteProducto(item.id); }} />
+        )}
+      </td>
+    </>
+  );
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const searchInput = {
   border:"1px solid #e2e8f0", borderRadius:10, padding:"10px 14px",
   fontSize:14, outline:"none", background:"#f8fafc", width:"100%", boxSizing:"border-box",
 };
-const pill      = { border:"1px solid #e2e8f0", background:"white", color:"#475569", borderRadius:20, padding:"5px 12px", fontSize:12, fontWeight:600, cursor:"pointer" };
-const pillActive = { background:"#0f172a", border:"1px solid #0f172a", color:"white" };
-const pillStock  = { background:"#f97316", border:"1px solid #f97316", color:"white" };
-const thStyle   = { textAlign:"left", padding:"10px 12px", fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".06em", borderBottom:"2px solid #f1f5f9", whiteSpace:"nowrap" };
-const tdStyle   = { padding:"10px 12px", borderBottom:"1px solid #f8fafc", verticalAlign:"middle" };
+const pill         = { border:"1px solid #e2e8f0", background:"white", color:"#475569", borderRadius:20, padding:"5px 12px", fontSize:12, fontWeight:600, cursor:"pointer" };
+const pillActive   = { background:"#0f172a", border:"1px solid #0f172a", color:"white" };
+const pillStock    = { background:"#f97316", border:"1px solid #f97316", color:"white" };
+const thStyle      = { textAlign:"left", padding:"10px 12px", fontSize:11, fontWeight:800, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".06em", borderBottom:"2px solid #f1f5f9", whiteSpace:"nowrap" };
+const tdStyle      = { padding:"10px 12px", borderBottom:"1px solid #f8fafc", verticalAlign:"middle" };
+const groupHeaderTd = { padding:"10px 14px", background:"#f8fafc", borderBottom:"1px solid #e2e8f0", borderTop:"2px solid #e2e8f0" };

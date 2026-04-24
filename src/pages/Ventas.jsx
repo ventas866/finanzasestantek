@@ -38,12 +38,22 @@ export default function Ventas({
   pagoLinea, setPagoLinea,
   onSave, onEdit, onDelete, onCancel,
   onPagarProveedorReventa,
+  onSaveProducto,
 }) {
   const [pagoProvOpen, setPagoProvOpen] = useState(null);
   const [pagoProvForm, setPagoProvForm] = useState({ fecha: today(), monto:"", cuentaId:"", nota:"", proveedor:"" });
   const [search,    setSearch]    = useState("");
   const [filtOrigen,setFiltOrigen]= useState("todos");
   const [filtPer,   setFiltPer]   = useState("todos");
+
+  // ── Edición inline de ítems ─────────────────────────────────────────────
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editItemForm,  setEditItemForm]  = useState({ cantidad:"", precioUnitario:"", costoUnitario:"" });
+
+  // ── Crear nuevo producto desde la venta ─────────────────────────────────
+  const [showNuevoProd,  setShowNuevoProd]  = useState(false);
+  const [nuevoProdForm,  setNuevoProdForm]  = useState({ sku:"", nombre:"", tipo:"Producto", costoBase:"", precioVenta:"" });
+  const [nuevoProdError, setNuevoProdError] = useState("");
 
   const { confirm, modal: confirmModal } = useConfirm();
 
@@ -123,6 +133,51 @@ export default function Ventas({
     ));
   }
 
+  function startEditItem(item) {
+    setEditingItemId(item.id);
+    setEditItemForm({
+      cantidad: item.cantidad.toString(),
+      precioUnitario: item.precioUnitario.toString(),
+      costoUnitario: item.costoUnitario.toString(),
+    });
+  }
+
+  function saveItemEdit(item) {
+    const cantidad = Number(editItemForm.cantidad || 0);
+    const precio   = Number(editItemForm.precioUnitario || 0);
+    const costo    = Number(editItemForm.costoUnitario || 0);
+    if (cantidad <= 0 || precio <= 0) return;
+    setItems((prev) => prev.map((i) =>
+      i.id !== item.id ? i : {
+        ...i, cantidad, precioUnitario: precio, costoUnitario: costo,
+        subtotalVenta: cantidad * precio,
+        subtotalCosto: cantidad * costo,
+        utilidad: cantidad * precio - cantidad * costo,
+      }
+    ));
+    setEditingItemId(null);
+  }
+
+  function guardarNuevoProducto() {
+    const sku = nuevoProdForm.sku.trim().toUpperCase();
+    const nombre = nuevoProdForm.nombre.trim();
+    if (!sku || !nombre) { setNuevoProdError("SKU y nombre son obligatorios"); return; }
+    if (catalogo.some((p) => p.sku === sku)) { setNuevoProdError(`El SKU "${sku}" ya existe`); return; }
+    const prod = {
+      id: uid(),
+      sku,
+      nombre,
+      tipo: nuevoProdForm.tipo || "Producto",
+      costoBase: Number(nuevoProdForm.costoBase || 0),
+      precioVenta: Number(nuevoProdForm.precioVenta || 0),
+    };
+    onSaveProducto?.(prod);
+    setLinea({ ...linea, sku: prod.sku, costoUnitario: prod.costoBase.toString(), precioUnitario: prod.precioVenta.toString() });
+    setShowNuevoProd(false);
+    setNuevoProdForm({ sku:"", nombre:"", tipo:"Producto", costoBase:"", precioVenta:"" });
+    setNuevoProdError("");
+  }
+
   const canSave     = form.cliente && items.length > 0;
   const costoAutoLabel = catalogoMap[linea.sku]?.costo
     ? `Auto: ${money(catalogoMap[linea.sku].costo)}`
@@ -132,6 +187,14 @@ export default function Ventas({
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
       {confirmModal}
+      <NuevoProductoModal
+        show={showNuevoProd}
+        form={nuevoProdForm}
+        error={nuevoProdError}
+        onFormChange={setNuevoProdForm}
+        onGuardar={guardarNuevoProducto}
+        onClose={() => { setShowNuevoProd(false); setNuevoProdError(""); }}
+      />
       <SectionHeader
         title={editingId ? "Editando venta" : "Nueva venta"}
         subtitle="Registra ventas con múltiples productos y calcula utilidad automáticamente"
@@ -172,15 +235,23 @@ export default function Ventas({
             <FormSection label="Agregar productos">
               <FormGrid>
                 <Field label="Producto / SKU" wide>
-                  <select style={selectStyle} value={linea.sku}
-                    onChange={(e) => {
-                      const info = catalogoMap[e.target.value];
-                      setLinea({ ...linea, sku:e.target.value, esReventa: info?.tipo === "Reventa" });
-                    }}>
-                    {catalogo.map((p) => (
-                      <option key={p.sku} value={p.sku}>{p.sku} · {p.nombre}</option>
-                    ))}
-                  </select>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <select style={{ ...selectStyle, flex:1 }} value={linea.sku}
+                      onChange={(e) => {
+                        const info = catalogoMap[e.target.value];
+                        setLinea({ ...linea, sku:e.target.value, esReventa: info?.tipo === "Reventa" });
+                      }}>
+                      {catalogo.map((p) => (
+                        <option key={p.sku} value={p.sku}>{p.sku} · {p.nombre}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => { setNuevoProdError(""); setShowNuevoProd(true); }}
+                      title="Crear nuevo producto en inventario"
+                      style={{ border:"1.5px dashed #cbd5e1", background:"white", color:"#475569", borderRadius:8, padding:"7px 12px", fontWeight:700, cursor:"pointer", fontSize:13, whiteSpace:"nowrap", flexShrink:0 }}>
+                      ＋ Nuevo
+                    </button>
+                  </div>
                 </Field>
                 <Field label="Cantidad">
                   <input type="number" style={inputStyle} value={linea.cantidad}
@@ -216,6 +287,57 @@ export default function Ventas({
               <div style={itemsList}>
                 {items.map((item) => {
                   const m = item.subtotalVenta > 0 ? (item.utilidad / item.subtotalVenta) * 100 : 0;
+
+                  // ── Modo edición inline ──────────────────────────────────
+                  if (editingItemId === item.id) {
+                    const previewTotal = Number(editItemForm.cantidad||0) * Number(editItemForm.precioUnitario||0);
+                    return (
+                      <div key={item.id} style={{ ...itemRow, background:"#F0F9FF", borderColor:"#7DD3FC", flexDirection:"column", gap:10 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <span style={{ fontFamily:"monospace", fontSize:12, color:"#64748b" }}>{item.sku}</span>
+                          <span style={{ fontWeight:700, fontSize:13 }}>{item.producto}</span>
+                          {item.esReventa && <span style={{ fontSize:11, fontWeight:700, background:"#fef3c7", color:"#92400e", borderRadius:4, padding:"2px 6px" }}>REVENTA</span>}
+                        </div>
+                        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end" }}>
+                          <div>
+                            <div style={{ fontSize:11, color:"#64748b", marginBottom:3, fontWeight:600 }}>Cantidad</div>
+                            <input type="number" autoFocus value={editItemForm.cantidad}
+                              onChange={(e) => setEditItemForm({ ...editItemForm, cantidad:e.target.value })}
+                              style={{ ...inputStyle, width:80 }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize:11, color:"#64748b", marginBottom:3, fontWeight:600 }}>Precio unit.</div>
+                            <input type="number" value={editItemForm.precioUnitario}
+                              onChange={(e) => setEditItemForm({ ...editItemForm, precioUnitario:e.target.value })}
+                              style={{ ...inputStyle, width:110 }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize:11, color:"#64748b", marginBottom:3, fontWeight:600 }}>Costo unit.</div>
+                            <input type="number" value={editItemForm.costoUnitario}
+                              onChange={(e) => setEditItemForm({ ...editItemForm, costoUnitario:e.target.value })}
+                              style={{ ...inputStyle, width:110 }} />
+                          </div>
+                          {previewTotal > 0 && (
+                            <div style={{ fontWeight:700, fontSize:14, color:"#0f172a", paddingBottom:6 }}>
+                              = {money(previewTotal)}
+                            </div>
+                          )}
+                          <div style={{ display:"flex", gap:6, paddingBottom:6 }}>
+                            <button onClick={() => saveItemEdit(item)}
+                              style={{ background:"#0f172a", color:"white", border:"none", borderRadius:7, padding:"7px 14px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                              ✓ Guardar
+                            </button>
+                            <button onClick={() => setEditingItemId(null)}
+                              style={{ background:"#f1f5f9", color:"#475569", border:"1px solid #e2e8f0", borderRadius:7, padding:"7px 12px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ── Modo vista normal ────────────────────────────────────
                   return (
                     <div key={item.id} style={{ ...itemRow, ...(item.esReventa ? { background:"#fffbeb", borderColor:"#fde68a" } : {}) }}>
                       <div style={itemLeft}>
@@ -236,6 +358,12 @@ export default function Ventas({
                       </div>
                       <div style={itemRight}>
                         <span style={{ fontWeight:900 }}>{money(item.subtotalVenta)}</span>
+                        <button
+                          style={{ border:"1px solid #bfdbfe", borderRadius:6, padding:"4px 8px", cursor:"pointer", fontSize:11, fontWeight:700, background:"#eff6ff", color:"#1d4ed8" }}
+                          onClick={() => startEditItem(item)}
+                          title="Editar precio / cantidad / costo">
+                          ✎
+                        </button>
                         <button
                           style={{ border:"1px solid #e2e8f0", borderRadius:6, padding:"4px 8px", cursor:"pointer", fontSize:11, fontWeight:700, background: item.esReventa ? "#fef3c7" : "#f1f5f9", color: item.esReventa ? "#92400e" : "#475569" }}
                           onClick={() => toggleItemReventa(item.id)}
@@ -430,6 +558,71 @@ export default function Ventas({
             </div>
           )}
         </Panel>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal: crear nuevo producto desde ventas ─────────────────────────────────
+function NuevoProductoModal({ show, form, onFormChange, onGuardar, onClose, error }) {
+  if (!show) return null;
+  return (
+    <div onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div style={{ background:"white", borderRadius:16, padding:28, maxWidth:460, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,.25)" }}
+        onClick={(e) => e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <div>
+            <h3 style={{ margin:0, fontSize:17, fontWeight:800 }}>📦 Crear producto en inventario</h3>
+            <p style={{ margin:"4px 0 0", fontSize:12, color:"#64748b" }}>El producto quedará disponible para futuras ventas y compras</p>
+          </div>
+          <button onClick={onClose} style={{ border:"none", background:"#f1f5f9", borderRadius:8, width:32, height:32, cursor:"pointer", fontSize:16, fontWeight:700, color:"#64748b" }}>✕</button>
+        </div>
+        {error && <div style={{ background:"#fee2e2", color:"#991b1b", borderRadius:8, padding:"8px 12px", fontSize:13, marginBottom:12, fontWeight:600 }}>{error}</div>}
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:4 }}>SKU *</div>
+              <input style={inputStyle} placeholder="Ej: MESA-80-60" value={form.sku}
+                onChange={(e) => onFormChange({ ...form, sku:e.target.value.toUpperCase() })} autoFocus />
+            </div>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:4 }}>Tipo</div>
+              <select style={selectStyle} value={form.tipo} onChange={(e) => onFormChange({ ...form, tipo:e.target.value })}>
+                <option value="Producto">Producto</option>
+                <option value="Reventa">Reventa</option>
+                <option value="Servicio">Servicio</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:4 }}>Nombre del producto *</div>
+            <input style={inputStyle} placeholder="Ej: Marco metálico 80cm×60cm" value={form.nombre}
+              onChange={(e) => onFormChange({ ...form, nombre:e.target.value })} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:4 }}>Costo base</div>
+              <input type="number" style={inputStyle} placeholder="0" value={form.costoBase}
+                onChange={(e) => onFormChange({ ...form, costoBase:e.target.value })} />
+            </div>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:"#475569", marginBottom:4 }}>Precio de venta</div>
+              <input type="number" style={inputStyle} placeholder="0" value={form.precioVenta}
+                onChange={(e) => onFormChange({ ...form, precioVenta:e.target.value })} />
+            </div>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, marginTop:20 }}>
+          <button onClick={onGuardar}
+            style={{ flex:1, background:"#0f172a", color:"white", border:"none", borderRadius:10, padding:"12px", fontWeight:700, cursor:"pointer", fontSize:14 }}>
+            ✓ Crear y usar en la venta
+          </button>
+          <button onClick={onClose}
+            style={{ background:"#f1f5f9", color:"#475569", border:"1px solid #e2e8f0", borderRadius:10, padding:"12px 16px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+            Cancelar
+          </button>
+        </div>
       </div>
     </div>
   );

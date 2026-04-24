@@ -58,13 +58,19 @@ export default function Gastos({
   gastos, cuentas,
   form, setForm,
   editingId,
+  categoriasExtra = [],
+  onAddCategoria,
   onSave, onDelete, onEdit, onCancel,
 }) {
-  const [search,   setSearch]   = useState("");
-  const [filtTipo, setFiltTipo] = useState("todos");
-  const [filtCat,  setFiltCat]  = useState("");
-  const [filtPer,  setFiltPer]  = useState("todos");
-  const [page,     setPage]     = useState(1);
+  const [search,      setSearch]      = useState("");
+  const [filtTipo,    setFiltTipo]    = useState("todos");
+  const [filtCat,     setFiltCat]     = useState("");
+  const [filtPer,     setFiltPer]     = useState("todos");
+  const [page,        setPage]        = useState(1);
+  const [showAddCat,  setShowAddCat]  = useState(false);
+  const [newCatNombre,setNewCatNombre]= useState("");
+
+  const allCategorias = [...GASTO_CATEGORIAS, ...categoriasExtra.filter((c) => !GASTO_CATEGORIAS.includes(c))];
   const PER_PAGE = 20;
 
   const { confirm, modal } = useConfirm();
@@ -136,10 +142,41 @@ export default function Gastos({
                 onChange={(e) => setForm({ ...form, fecha:e.target.value })} />
             </Field>
             <Field label="Categoría">
-              <select style={selectStyle} value={form.categoria}
-                onChange={(e) => setForm({ ...form, categoria:e.target.value })}>
-                {GASTO_CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <div style={{ display:"flex", gap:6 }}>
+                <select style={{ ...selectStyle, flex:1 }} value={form.categoria}
+                  onChange={(e) => setForm({ ...form, categoria:e.target.value })}>
+                  {allCategorias.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button onClick={() => setShowAddCat((v) => !v)}
+                  title="Nueva categoría"
+                  style={{ border:"1.5px dashed #cbd5e1", background:"white", color:"#475569", borderRadius:8, padding:"0 10px", fontWeight:700, cursor:"pointer", fontSize:16, flexShrink:0 }}>
+                  ＋
+                </button>
+              </div>
+              {showAddCat && (
+                <div style={{ marginTop:6, display:"flex", gap:6 }}>
+                  <input style={{ ...inputStyle, flex:1 }} autoFocus placeholder="Ej: Embalaje, Arriendo, Servicios..."
+                    value={newCatNombre}
+                    onChange={(e) => setNewCatNombre(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { onAddCategoria?.(newCatNombre); setForm({ ...form, categoria:newCatNombre.trim() }); setNewCatNombre(""); setShowAddCat(false); }
+                      if (e.key === "Escape") { setShowAddCat(false); setNewCatNombre(""); }
+                    }}
+                  />
+                  <button onClick={() => {
+                    if (!newCatNombre.trim()) return;
+                    onAddCategoria?.(newCatNombre.trim());
+                    setForm({ ...form, categoria:newCatNombre.trim() });
+                    setNewCatNombre(""); setShowAddCat(false);
+                  }} style={{ background:"#0f172a", color:"white", border:"none", borderRadius:8, padding:"0 12px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    ✓
+                  </button>
+                  <button onClick={() => { setShowAddCat(false); setNewCatNombre(""); }}
+                    style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"0 10px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    ✕
+                  </button>
+                </div>
+              )}
             </Field>
             <Field label="Valor" hint={form.valor ? money(Number(form.valor)) : ""}>
               <input type="number" style={inputStyle} placeholder="0" value={form.valor}
@@ -210,7 +247,7 @@ export default function Gastos({
                 <select style={{ ...selectStyle, minWidth:160, flex:1 }} value={filtCat}
                   onChange={(e) => { setFiltCat(e.target.value); setPage(1); }}>
                   <option value="">Todas las categorías</option>
-                  {GASTO_CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {allCategorias.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {hasFilters && (
                   <button

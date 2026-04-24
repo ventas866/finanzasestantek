@@ -76,6 +76,10 @@ export default function App() {
   const [conversiones,   setConversiones]   = useState([]);
   const [retiros,        setRetiros]        = useState([]);
   const [rendimientos,   setRendimientos]   = useState([]);
+  const [categoriasGasto, setCategoriasGasto] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("estantek_cat_gasto") || "[]"); }
+    catch { return []; }
+  });
   const [cuentas,        setCuentas]        = useState(DEFAULT_CUENTAS);
   const [productosExtra, setProductosExtra] = useState([]);
   const [precios,        setPrecios]        = useState({}); // { [sku]: precioVenta }
@@ -312,6 +316,14 @@ export default function App() {
     setInversiones((p)=>[inv,...p]);
     dbSave("inversiones", inv);
     setFormInversion({ fecha:today(), socio:"Raúl", valor:"", descripcion:"", cuentaId:"" });
+  }
+
+  // ── Categorías de gastos (localStorage) ──────────────────────────────────
+  function addCategoriaGasto(nombre) {
+    if (!nombre.trim()) return;
+    const updated = [...categoriasGasto, nombre.trim()];
+    setCategoriasGasto(updated);
+    localStorage.setItem("estantek_cat_gasto", JSON.stringify(updated));
   }
 
   // ── Retiros de socios ─────────────────────────────────────────────────────
@@ -559,6 +571,7 @@ export default function App() {
               pagoLinea={ventaPagoLinea} setPagoLinea={setVentaPagoLinea}
               onSave={guardarVenta} onEdit={editarVenta} onDelete={eliminarVenta} onCancel={limpiarVentaForm}
               onPagarProveedorReventa={pagarProveedorReventa}
+              onSaveProducto={guardarProductoExtra}
             />
           )}
           {pagina==="Caja"         && (
@@ -584,6 +597,8 @@ export default function App() {
               gastos={gastos} cuentas={cuentas}
               form={formGasto} setForm={setFormGasto}
               editingId={editingGastoId}
+              categoriasExtra={categoriasGasto}
+              onAddCategoria={addCategoriaGasto}
               onSave={registrarGasto} onDelete={eliminarGasto} onEdit={editarGasto}
               onCancel={()=>{ setEditingGastoId(null); setFormGasto({ fecha:today(), categoria:"Financiero", valor:"", descripcion:"", cuentaId:"" }); }}
             />

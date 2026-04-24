@@ -3,7 +3,7 @@ import {
   BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { money, pct, isoMonth, lastNMonths, monthLabel } from "../utils.js";
+import { money, pct, isoMonth, lastNMonths, monthLabel, today, uid } from "../utils.js";
 import { Panel, KpiCard, FinRow, OrigenBadge, EmptyState, Divider } from "../ui.jsx";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -77,10 +77,16 @@ function PieTooltip({ active, payload }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo }) {
+export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], onRetiro, onRendimiento }) {
   const [chartPeriod, setChartPeriod] = useState("6");
   const [filtroAno,   setFiltroAno]   = useState("");   // "" = histórico total
   const [filtroMes,   setFiltroMes]   = useState("");   // "01"–"12", solo activo si filtroAno
+
+  // Forms retiros / rendimientos
+  const [showRetiroForm, setShowRetiroForm] = useState(false);
+  const [retiroForm,     setRetiroForm]     = useState({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" });
+  const [showRendForm,   setShowRendForm]   = useState(false);
+  const [rendForm,       setRendForm]       = useState({ fecha:today(), monto:"", cuentaId:"", nota:"Rendimiento NU" });
 
   // ── Años disponibles derivados de los datos ───────────────────────────────
   const anosDisponibles = useMemo(() => {
@@ -189,9 +195,12 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     const totalInversiones = iF.reduce((a, i) => a + i.valor, 0);
     const cajaTeorica      =
       inversiones.reduce((a,x)=>a+x.valor,0) +
-      ventas.reduce((a,x)=>a+x.total,0) -
+      ventas.reduce((a,x)=>a+x.total,0) +
+      rendimientos.reduce((a,r)=>a+r.monto,0) -
       compras.reduce((a,x)=>a+x.total,0) -
-      gastos.reduce((a,x)=>a+x.valor,0);
+      gastos.reduce((a,x)=>a+x.valor,0) -
+      ventas.reduce((a,v)=>a+(v.pagosProvReventa||[]).reduce((b,p)=>b+p.monto,0),0) -
+      retiros.reduce((a,r)=>a+r.monto,0);
 
     const conStock               = catalogo.filter((x) => x.stock > 0);
     const valorInventarioCosto   = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
@@ -271,7 +280,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       carteraPendiente, cuentasPorPagar,
       ventasPorOrigen, topProveedores, topInventario, gastosData,
     };
-  }, [vF, cF, gF, iF, catalogo, ventas, compras, gastos, inversiones]);
+  }, [vF, cF, gF, iF, catalogo, ventas, compras, gastos, inversiones, retiros, rendimientos]);
 
   // ── Chart data ────────────────────────────────────────────────────────────
   const tendenciaData = useMemo(() => {
@@ -309,22 +318,24 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
   // ── Distribución a accionistas (siempre histórico total) ──────────────────
   const distribucion = useMemo(() => {
     const totalIngresos      = ventas.reduce((a, v) => a + v.total, 0);
+    const totalRendimientos  = rendimientos.reduce((a, r) => a + r.monto, 0);
     const totalComprasBase   = compras.reduce((a, c) => a + c.total, 0);
     const totalPagosReventa  = ventas.reduce((a, v) =>
       a + (v.pagosProvReventa || []).reduce((b, p) => b + p.monto, 0), 0);
     const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
-    const totalEgresos       = totalComprasBase + totalPagosReventa + totalGastosOp;
+    const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
+    const totalEgresos       = totalComprasBase + totalPagosReventa + totalGastosOp + totalRetiros;
     const totalCapital       = inversiones.reduce((a, i) => a + i.valor, 0);
-    const cajaDisponible     = totalCapital + totalIngresos - totalEgresos;
+    const cajaDisponible     = totalCapital + totalIngresos + totalRendimientos - totalEgresos;
     const conStock           = catalogo.filter((x) => x.stock > 0);
     const valorInv           = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
     const saldoDistribuible  = cajaDisponible - valorInv;
     return {
-      totalIngresos, totalComprasBase, totalPagosReventa,
-      totalGastosOp, totalEgresos, totalCapital,
+      totalIngresos, totalRendimientos, totalComprasBase, totalPagosReventa,
+      totalGastosOp, totalRetiros, totalEgresos, totalCapital,
       cajaDisponible, valorInv, saldoDistribuible,
     };
-  }, [ventas, compras, gastos, inversiones, catalogo]);
+  }, [ventas, compras, gastos, inversiones, catalogo, retiros, rendimientos]);
 
   const hasData = ventas.length > 0;
 
@@ -564,30 +575,34 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
           <div>
             <h3 style={{ ...panelTitle, fontSize: 16 }}>💰 Posición distribuible a accionistas</h3>
             <p style={{ margin:"3px 0 0", fontSize:12, color:C.ink4 }}>
-              Datos históricos totales · cuánto se puede repartir luego de cubrir inventario y deudas
+              Datos históricos totales · cuánto se puede repartir luego de cubrir inventario
             </p>
           </div>
           <span style={{ fontSize:11, padding:"4px 10px", background:C.brandLight, color:C.brand, borderRadius:6, fontWeight:700, flexShrink:0 }}>
             HISTÓRICO
           </span>
         </div>
+
+        {/* Cálculo principal */}
         <div style={{ display:"flex", gap:20, flexWrap:"wrap", alignItems:"stretch" }}>
           {/* Desglose */}
           <div style={{ flex:1, minWidth:260, display:"flex", flexDirection:"column", gap:9 }}>
-            <DistRow label="(+) Capital aportado por accionistas" value={distribucion.totalCapital}  color="#1565C0" />
-            <DistRow label="(+) Ingresos por ventas"              value={distribucion.totalIngresos} color={C.positive} />
+            <DistRow label="(+) Capital aportado"         value={distribucion.totalCapital}     color="#1565C0" />
+            <DistRow label="(+) Ingresos por ventas"      value={distribucion.totalIngresos}    color={C.positive} />
+            <DistRow label="(+) Rendimientos financieros" value={distribucion.totalRendimientos} color="#00838F" />
             <div style={{ height:1, background:C.border, margin:"2px 0" }} />
             <div style={{ fontSize:11, fontWeight:700, color:C.ink4, textTransform:"uppercase", letterSpacing:".5px" }}>Egresos</div>
-            <DistRow label="Compras de inventario"         value={distribucion.totalComprasBase}  color={C.negative} indent />
-            <DistRow label="Pagos proveedores reventa"     value={distribucion.totalPagosReventa} color={C.negative} indent />
-            <DistRow label="Gastos operativos"             value={distribucion.totalGastosOp}     color={C.negative} indent />
+            <DistRow label="Compras de inventario"        value={distribucion.totalComprasBase}  color={C.negative} indent />
+            <DistRow label="Pagos proveedores reventa"    value={distribucion.totalPagosReventa} color={C.negative} indent />
+            <DistRow label="Gastos operativos"            value={distribucion.totalGastosOp}     color={C.negative} indent />
+            <DistRow label="Retiros de socios"            value={distribucion.totalRetiros}      color={C.negative} indent />
             <div style={{ height:1, background:C.border, margin:"2px 0" }} />
-            <DistRow label="= Caja disponible (teórica)"  value={distribucion.cajaDisponible}    color={distribucion.cajaDisponible >= 0 ? C.positive : C.negative} bold />
-            <DistRow label="(−) Inventario inmovilizado"  value={distribucion.valorInv}           color="#E65100" />
+            <DistRow label="= Caja disponible"            value={distribucion.cajaDisponible}    color={distribucion.cajaDisponible >= 0 ? C.positive : C.negative} bold />
+            <DistRow label="(−) Inventario inmovilizado"  value={distribucion.valorInv}          color="#E65100" />
           </div>
           {/* Resultado */}
           <div style={{
-            minWidth: 200, display:"flex", flexDirection:"column", justifyContent:"center",
+            minWidth:200, display:"flex", flexDirection:"column", justifyContent:"center",
             alignItems:"center", padding:"24px 28px",
             background: distribucion.saldoDistribuible >= 0 ? C.posBg : C.negBg,
             borderRadius:14, border:`1.5px solid ${distribucion.saldoDistribuible >= 0 ? "#A5D6A7" : "#EF9A9A"}`,
@@ -604,6 +619,136 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
                 ? "Disponible para repartir a los socios"
                 : "Capital insuficiente para distribución"}
             </div>
+          </div>
+        </div>
+
+        {/* Retiros + Rendimientos: registro y historial */}
+        <div style={{ marginTop:20, paddingTop:20, borderTop:`1px solid ${C.border}`, display:"flex", gap:16, flexWrap:"wrap" }}>
+
+          {/* ── Retiros de socios ── */}
+          <div style={{ flex:1, minWidth:240 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:14, color:C.ink }}>💸 Retiros de socios</div>
+                <div style={{ fontSize:12, color:C.ink4 }}>Total retirado: <strong style={{ color:C.negative }}>{money(distribucion.totalRetiros)}</strong></div>
+              </div>
+              {!showRetiroForm && (
+                <button onClick={() => setShowRetiroForm(true)}
+                  style={{ border:`1px solid ${C.negative}`, background:"white", color:C.negative, borderRadius:8, padding:"6px 12px", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                  + Nuevo retiro
+                </button>
+              )}
+            </div>
+            {showRetiroForm && (
+              <div style={{ border:`1px solid ${C.border2}`, borderRadius:10, padding:12, display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input type="date" value={retiroForm.fecha} onChange={(e) => setRetiroForm({ ...retiroForm, fecha:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }} />
+                  <input type="text" placeholder="Socio" value={retiroForm.socio} onChange={(e) => setRetiroForm({ ...retiroForm, socio:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }} />
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input type="number" placeholder="Monto" value={retiroForm.monto} onChange={(e) => setRetiroForm({ ...retiroForm, monto:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }} />
+                  <select value={retiroForm.cuentaId} onChange={(e) => setRetiroForm({ ...retiroForm, cuentaId:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }}>
+                    <option value="">— Cuenta —</option>
+                    {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </div>
+                <input placeholder="Nota (opcional)" value={retiroForm.nota} onChange={(e) => setRetiroForm({ ...retiroForm, nota:e.target.value })}
+                  style={dInpSt} />
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={() => {
+                    const monto = Number(retiroForm.monto || 0);
+                    if (!monto) return;
+                    onRetiro?.({ fecha:retiroForm.fecha, socio:retiroForm.socio, monto, cuentaId:retiroForm.cuentaId||null, nota:retiroForm.nota });
+                    setRetiroForm({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" });
+                    setShowRetiroForm(false);
+                  }} style={{ flex:1, background:C.negative, color:"white", border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    Registrar retiro
+                  </button>
+                  <button onClick={() => setShowRetiroForm(false)}
+                    style={{ flex:1, background:"#f5f5f5", color:C.ink3, border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+            {retiros.length > 0 ? (
+              <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                {[...retiros].sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,5).map((r) => (
+                  <div key={r.id} style={{ display:"flex", justifyContent:"space-between", padding:"7px 10px", background:C.negBg, borderRadius:8, fontSize:13 }}>
+                    <span style={{ color:C.ink3 }}>{r.fecha}{r.socio ? ` · ${r.socio}` : ""}{r.nota ? ` · ${r.nota}` : ""}</span>
+                    <span style={{ fontWeight:700, color:C.negative }}>{money(r.monto)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize:13, color:C.ink4, fontStyle:"italic" }}>Sin retiros registrados</div>
+            )}
+          </div>
+
+          {/* ── Rendimientos NU ── */}
+          <div style={{ flex:1, minWidth:240 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:14, color:C.ink }}>📈 Rendimientos NU</div>
+                <div style={{ fontSize:12, color:C.ink4 }}>Total recibido: <strong style={{ color:"#00838F" }}>{money(distribucion.totalRendimientos)}</strong></div>
+              </div>
+              {!showRendForm && (
+                <button onClick={() => setShowRendForm(true)}
+                  style={{ border:"1px solid #00838F", background:"white", color:"#00838F", borderRadius:8, padding:"6px 12px", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                  + Nuevo rendimiento
+                </button>
+              )}
+            </div>
+            {showRendForm && (
+              <div style={{ border:`1px solid ${C.border2}`, borderRadius:10, padding:12, display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input type="date" value={rendForm.fecha} onChange={(e) => setRendForm({ ...rendForm, fecha:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }} />
+                  <input type="number" placeholder="Monto" value={rendForm.monto} onChange={(e) => setRendForm({ ...rendForm, monto:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }} />
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <select value={rendForm.cuentaId} onChange={(e) => setRendForm({ ...rendForm, cuentaId:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }}>
+                    <option value="">— Cuenta (ej: NU) —</option>
+                    {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                  <input placeholder="Nota" value={rendForm.nota} onChange={(e) => setRendForm({ ...rendForm, nota:e.target.value })}
+                    style={{ ...dInpSt, flex:1 }} />
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={() => {
+                    const monto = Number(rendForm.monto || 0);
+                    if (!monto) return;
+                    onRendimiento?.({ fecha:rendForm.fecha, monto, cuentaId:rendForm.cuentaId||null, nota:rendForm.nota });
+                    setRendForm({ fecha:today(), monto:"", cuentaId:"", nota:"Rendimiento NU" });
+                    setShowRendForm(false);
+                  }} style={{ flex:1, background:"#00838F", color:"white", border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    Registrar rendimiento
+                  </button>
+                  <button onClick={() => setShowRendForm(false)}
+                    style={{ flex:1, background:"#f5f5f5", color:C.ink3, border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+            {rendimientos.length > 0 ? (
+              <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                {[...rendimientos].sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,5).map((r) => (
+                  <div key={r.id} style={{ display:"flex", justifyContent:"space-between", padding:"7px 10px", background:"#E0F2F1", borderRadius:8, fontSize:13 }}>
+                    <span style={{ color:C.ink3 }}>{r.fecha}{r.nota ? ` · ${r.nota}` : ""}</span>
+                    <span style={{ fontWeight:700, color:"#00838F" }}>{money(r.monto)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize:13, color:C.ink4, fontStyle:"italic" }}>Sin rendimientos registrados</div>
+            )}
           </div>
         </div>
       </div>
@@ -859,3 +1004,4 @@ const periodBtn    = { border:`1px solid ${C.border2}`, background:"white", colo
 const periodBtnActive = { background:C.ink, border:`1px solid ${C.ink}`, color:"white" };
 const chartPeriodBtn       = { border:`1px solid ${C.border2}`, background:"white", color:C.ink4, borderRadius:8, padding:"5px 12px", fontSize:12, fontWeight:600, cursor:"pointer" };
 const chartPeriodBtnActive = { background:C.brand, border:`1px solid ${C.brand}`, color:"white" };
+const dInpSt = { border:`1px solid ${C.border2}`, borderRadius:8, padding:"7px 10px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" };

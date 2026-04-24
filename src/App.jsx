@@ -74,6 +74,8 @@ export default function App() {
   const [transferencias, setTransferencias] = useState([]);
   const [ajustes,        setAjustes]        = useState([]);
   const [conversiones,   setConversiones]   = useState([]);
+  const [retiros,        setRetiros]        = useState([]);
+  const [rendimientos,   setRendimientos]   = useState([]);
   const [cuentas,        setCuentas]        = useState(DEFAULT_CUENTAS);
   const [productosExtra, setProductosExtra] = useState([]);
   const [precios,        setPrecios]        = useState({}); // { [sku]: precioVenta }
@@ -121,7 +123,7 @@ export default function App() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [c, v, g, i, cu, tr, aj, co, prods, precs] = await Promise.all([
+        const [c, v, g, i, cu, tr, aj, co, prods, precs, ret, rend] = await Promise.all([
           fetchTable("compras"),
           fetchTable("ventas"),
           fetchTable("gastos"),
@@ -132,9 +134,12 @@ export default function App() {
           fetchTable("conversiones"),
           fetchProductos(),
           fetchPrecios(),
+          fetchTable("retiros"),
+          fetchTable("rendimientos"),
         ]);
         setCompras(c); setVentas(v); setGastos(g); setInversiones(i);
         setTransferencias(tr); setAjustes(aj); setConversiones(co);
+        setRetiros(ret || []); setRendimientos(rend || []);
         setProductosExtra(prods);
         setPrecios(precs);
         if (cu.length > 0) setCuentas(mergeCuentas(cu));
@@ -307,6 +312,20 @@ export default function App() {
     setInversiones((p)=>[inv,...p]);
     dbSave("inversiones", inv);
     setFormInversion({ fecha:today(), socio:"Raúl", valor:"", descripcion:"", cuentaId:"" });
+  }
+
+  // ── Retiros de socios ─────────────────────────────────────────────────────
+  function registrarRetiro(retiro) {
+    const record = { id: uid(), ...retiro };
+    setRetiros((p) => [record, ...p]);
+    dbSave("retiros", record);
+  }
+
+  // ── Rendimientos financieros ──────────────────────────────────────────────
+  function registrarRendimiento(rend) {
+    const record = { id: uid(), ...rend };
+    setRendimientos((p) => [record, ...p]);
+    dbSave("rendimientos", record);
   }
 
   // ── Cuentas ───────────────────────────────────────────────────────────────
@@ -502,7 +521,7 @@ export default function App() {
         </header>
 
         <main style={pageContent} className="page-content-inner">
-          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} />}
+          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} cuentas={cuentas} retiros={retiros} rendimientos={rendimientos} onRetiro={registrarRetiro} onRendimiento={registrarRendimiento} />}
           {pagina==="Inventario"   && (
             <Inventario
               catalogo={catalogo}
@@ -547,6 +566,7 @@ export default function App() {
               cuentas={cuentas}
               compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones}
               transferencias={transferencias}
+              retiros={retiros} rendimientos={rendimientos}
               onTransferencia={registrarTransferencia}
               onAddCuenta={agregarCuenta}
               onRenameCuenta={renombrarCuenta}

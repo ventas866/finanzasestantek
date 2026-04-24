@@ -56,7 +56,7 @@ export function buildInventory(
       if (!actual) continue;
       map.set(linea.sku, {
         ...actual,
-        stock: Math.max(0, actual.stock - Number(linea.cantidad || 0)),
+        stock: actual.stock - Number(linea.cantidad || 0), // permite negativo
       });
     }
   }
@@ -82,7 +82,7 @@ export function buildInventory(
     if (!actual) continue;
     map.set(aj.sku, {
       ...actual,
-      stock: Math.max(0, actual.stock + Number(aj.cantidad || 0)),
+      stock: actual.stock + Number(aj.cantidad || 0), // permite negativo
     });
   }
 

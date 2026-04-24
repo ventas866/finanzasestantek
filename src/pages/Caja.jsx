@@ -14,6 +14,8 @@ export default function Caja({
   cuentas,
   compras, ventas, gastos, inversiones,
   transferencias = [],
+  retiros = [],
+  rendimientos = [],
   onTransferencia,
   onAddCuenta,
   onRenameCuenta,
@@ -75,9 +77,19 @@ export default function Caja({
         if (t.aCuentaId  === cuenta.id) saldo += t.monto;
       });
 
+      // Rendimientos financieros aumentan el saldo
+      rendimientos.forEach((r) => {
+        if (r.cuentaId === cuenta.id) saldo += r.monto;
+      });
+
+      // Retiros de socios disminuyen el saldo
+      retiros.forEach((r) => {
+        if (r.cuentaId === cuenta.id) saldo -= r.monto;
+      });
+
       return { ...cuenta, saldoActual: saldo };
     });
-  }, [cuentas, compras, ventas, gastos, inversiones, transferencias]);
+  }, [cuentas, compras, ventas, gastos, inversiones, transferencias, retiros, rendimientos]);
 
   const totalCaja = resumenCuentas.reduce((a, c) => a + c.saldoActual, 0);
 
@@ -138,8 +150,18 @@ export default function Caja({
       const a  = cuentas.find((c) => c.id === t.aCuentaId)?.nombre||"—";
       mov.push({ fecha:t.fecha, tipo:"Transferencia", concepto:`Traslado${t.nota?" · "+t.nota:""}`, valor:t.monto, cuenta:`${de} → ${a}`, signo:"↔" });
     });
+    rendimientos.forEach((r) => {
+      if (!r.cuentaId) return;
+      const cuenta = cuentas.find((c) => c.id === r.cuentaId);
+      mov.push({ fecha:r.fecha, tipo:"Ingreso", concepto:`Rendimiento financiero${r.nota?" · "+r.nota:""}`, valor:r.monto, cuenta:cuenta?.nombre||"—", signo:"+" });
+    });
+    retiros.forEach((r) => {
+      const cuenta = cuentas.find((c) => c.id === r.cuentaId);
+      const detalle = [r.socio, r.nota].filter(Boolean).join(" · ");
+      mov.push({ fecha:r.fecha, tipo:"Egreso", concepto:`Retiro socio${detalle ? " · "+detalle : ""}`, valor:r.monto, cuenta:cuenta?.nombre||"—", signo:"-" });
+    });
     return mov.sort((a, b) => b.fecha.localeCompare(a.fecha));
-  }, [cuentas, compras, ventas, gastos, inversiones, transferencias]);
+  }, [cuentas, compras, ventas, gastos, inversiones, transferencias, retiros, rendimientos]);
 
   function guardarTransferencia() {
     const monto = Number(trForm.monto || 0);

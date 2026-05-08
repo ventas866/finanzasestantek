@@ -365,15 +365,37 @@ export default function App() {
 
   // ── Inventario ────────────────────────────────────────────────────────────
   function guardarAjuste(ajuste) {
-    const record = { id:uid(), ...ajuste };
-    setAjustes((p)=>[record,...p]);
-    dbSave("ajustes", record);
+    if (ajuste.id) {
+      // editar existente
+      setAjustes((p) => p.map((a) => a.id === ajuste.id ? ajuste : a));
+      dbSave("ajustes", ajuste);
+    } else {
+      const record = { id: uid(), ...ajuste };
+      setAjustes((p) => [record, ...p]);
+      dbSave("ajustes", record);
+    }
+  }
+
+  function eliminarAjuste(id) {
+    setAjustes((p) => p.filter((a) => a.id !== id));
+    dbDelete("ajustes", id);
   }
 
   function guardarConversion(conv) {
-    const record = { id:uid(), ...conv };
-    setConversiones((p)=>[record,...p]);
-    dbSave("conversiones", record);
+    if (conv.id) {
+      // editar existente
+      setConversiones((p) => p.map((c) => c.id === conv.id ? conv : c));
+      dbSave("conversiones", conv);
+    } else {
+      const record = { id: uid(), ...conv };
+      setConversiones((p) => [record, ...p]);
+      dbSave("conversiones", record);
+    }
+  }
+
+  function eliminarConversion(id) {
+    setConversiones((p) => p.filter((c) => c.id !== id));
+    dbDelete("conversiones", id);
   }
 
   function guardarProductoExtra(prod) {
@@ -382,6 +404,15 @@ export default function App() {
     // Also save its initial precio if provided
     if (prod.precioVenta > 0) {
       setPrecios((p)=>({ ...p, [prod.sku]: prod.precioVenta }));
+      savePrecio(prod.sku, prod.precioVenta);
+    }
+  }
+
+  function actualizarProductoExtra(prod) {
+    setProductosExtra((p) => p.map((x) => x.id === prod.id ? prod : x));
+    saveProducto(prod); // upsert via id
+    if (prod.precioVenta > 0) {
+      setPrecios((p) => ({ ...p, [prod.sku]: prod.precioVenta }));
       savePrecio(prod.sku, prod.precioVenta);
     }
   }
@@ -542,10 +573,13 @@ export default function App() {
               conversiones={conversiones}
               productosExtra={productosExtra}
               onAjuste={guardarAjuste}
+              onDeleteAjuste={eliminarAjuste}
               onConversion={guardarConversion}
+              onDeleteConversion={eliminarConversion}
               onSaveProducto={guardarProductoExtra}
               onDeleteProducto={eliminarProductoExtra}
               onUpdatePrecio={actualizarPrecio}
+              onUpdateProducto={actualizarProductoExtra}
             />
           )}
           {pagina==="Compras"      && (

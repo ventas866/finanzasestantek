@@ -117,7 +117,7 @@ button:active { transform: scale(.98); }
 /* ─── Table row hover ────────────────────────────────────────────────────── */
 .tr-hover:hover { background: #FFF8F0 !important; }
 .tr-hover:hover .row-actions { opacity: 1 !important; }
-.row-actions { opacity: 0; transition: opacity .15s; }
+.row-actions { opacity: 0.35; transition: opacity .15s; }
 
 /* ─── Responsive grid classes ────────────────────────────────────────────── */
 .pg-2col  { display: grid; grid-template-columns: 460px 1fr; gap: 20px; align-items: start; }

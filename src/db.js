@@ -18,12 +18,18 @@ export const supabase = dbReady ? createClient(URL, KEY) : null;
 export async function fetchTable(table) {
   if (!supabase) throw new Error("Supabase no configurado");
   try {
+    // Intenta con orden por fecha
     const { data, error } = await supabase
       .from(table)
       .select("data")
       .order("fecha", { ascending: false, nullsFirst: false });
-    if (error) { console.warn(`fetchTable(${table}): ${error.message}`); return []; }
-    return data.map((r) => r.data);
+    if (!error) return data.map((r) => r.data);
+
+    // Fallback: la tabla puede no tener columna "fecha" — cargar sin orden
+    console.warn(`fetchTable(${table}) con orden falló (${error.message}), reintentando sin orden...`);
+    const { data: d2, error: e2 } = await supabase.from(table).select("data");
+    if (e2) { console.warn(`fetchTable(${table}):`, e2.message); return []; }
+    return d2.map((r) => r.data);
   } catch (e) {
     console.warn(`fetchTable(${table}) exception:`, e);
     return [];
@@ -32,12 +38,18 @@ export async function fetchTable(table) {
 
 export async function saveRecord(table, record) {
   if (!supabase) throw new Error("Supabase no configurado");
+  // Intenta guardar con columna "fecha" (para ordenamiento en DB)
   const { error } = await supabase.from(table).upsert({
     id: record.id,
     fecha: record.fecha || null,
     data: record,
   });
-  if (error) console.error(`saveRecord(${table}):`, error);
+  if (!error) return;
+
+  // Fallback: la tabla puede no tener columna "fecha"
+  console.warn(`saveRecord(${table}) con fecha falló (${error.message}), reintentando sin fecha...`);
+  const { error: e2 } = await supabase.from(table).upsert({ id: record.id, data: record });
+  if (e2) console.error(`saveRecord(${table}):`, e2);
 }
 
 export async function deleteRecord(table, id) {

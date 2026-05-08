@@ -1,8 +1,8 @@
 import { useMemo, useState, Fragment } from "react";
 import { money, uid, today } from "../utils.js";
 import {
-  Panel, SectionHeader, DataTable, CategoriaBadge, OrigenBadge, StockBadge, EmptyState,
-  Field, inputStyle, selectStyle, FormGrid, DarkBtn, DeleteBtn,
+  Panel, SectionHeader, CategoriaBadge, OrigenBadge, StockBadge, EmptyState,
+  Field, inputStyle, selectStyle, FormGrid, DarkBtn, DeleteBtn, EditBtn, CancelBtn,
 } from "../ui.jsx";
 
 export default function Inventario({
@@ -12,12 +12,19 @@ export default function Inventario({
   conversiones = [],
   productosExtra = [],
   onAjuste,
+  onDeleteAjuste,
   onConversion,
+  onDeleteConversion,
   onSaveProducto,
   onDeleteProducto,
   onUpdatePrecio,
+  onUpdateProducto,
 }) {
   const [tab, setTab] = useState("catalogo");
+
+  // ── Tab 4: edit custom product ───────────────────────────────────────────
+  const [editingProdId, setEditingProdId] = useState(null);
+  const [editProdForm,  setEditProdForm]  = useState({ sku:"", nombre:"", categoria:"", tipo:"", costoBase:"", precioVenta:"" });
 
   // ── Tab 1: Catálogo ──────────────────────────────────────────────────────
   const [busqueda,        setBusqueda]        = useState("");
@@ -73,17 +80,32 @@ export default function Inventario({
 
   // ── Tab 2: Ajustes ──────────────────────────────────────────────────────
   const skuBase  = catalogo.filter((i) => i.tipo !== "Servicio")[0]?.sku || "";
-  const [ajForm, setAjForm] = useState({ fecha: today(), sku: skuBase, cantidad: "", motivo: "Conteo físico" });
+  const [ajForm,         setAjForm]         = useState({ fecha: today(), sku: skuBase, cantidad: "", motivo: "Conteo físico" });
+  const [editingAjusteId, setEditingAjusteId] = useState(null);
 
   function guardarAjuste() {
     const cant = Number(ajForm.cantidad);
     if (!ajForm.sku || !cant) return;
-    onAjuste({ fecha: ajForm.fecha, sku: ajForm.sku, cantidad: cant, motivo: ajForm.motivo });
+    onAjuste({
+      ...(editingAjusteId ? { id: editingAjusteId } : {}),
+      fecha: ajForm.fecha, sku: ajForm.sku, cantidad: cant, motivo: ajForm.motivo,
+    });
     setAjForm({ fecha: today(), sku: skuBase, cantidad: "", motivo: "Conteo físico" });
+    setEditingAjusteId(null);
+  }
+
+  function editarAjuste(aj) {
+    setAjForm({ fecha: aj.fecha, sku: aj.sku, cantidad: aj.cantidad.toString(), motivo: aj.motivo || "" });
+    setEditingAjusteId(aj.id);
+  }
+
+  function cancelarAjuste() {
+    setAjForm({ fecha: today(), sku: skuBase, cantidad: "", motivo: "Conteo físico" });
+    setEditingAjusteId(null);
   }
 
   const itemActual    = catalogo.find((i) => i.sku === ajForm.sku);
-  const stockDespues  = itemActual ? Math.max(0, itemActual.stock + Number(ajForm.cantidad || 0)) : 0;
+  const stockDespues  = itemActual ? itemActual.stock + Number(ajForm.cantidad || 0) : 0;
 
   // ── Tab 3: Conversiones ──────────────────────────────────────────────────
   const lotes = useMemo(() => compras.flatMap((c) =>
@@ -118,8 +140,9 @@ export default function Inventario({
   }), [lotes, usadosPorLote]);
 
   const CONV_FORM_INIT = { fecha: today(), loteItemId: "", descripcion: "", cantidadLote: "", loteListo: false, piezas: [] };
-  const [convForm,  setConvForm]  = useState(CONV_FORM_INIT);
-  const [convLinea, setConvLinea] = useState({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
+  const [convForm,      setConvForm]      = useState(CONV_FORM_INIT);
+  const [convLinea,     setConvLinea]     = useState({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
+  const [editingConvId, setEditingConvId] = useState(null);
 
   const loteSelec     = lotesEnriquecidos.find((l) => l.id === convForm.loteItemId);
   const costoLote     = loteSelec?.costoTotal || 0;
@@ -150,6 +173,7 @@ export default function Inventario({
   function guardarConversion() {
     if (!convForm.loteItemId || convForm.piezas.length === 0) return;
     onConversion({
+      ...(editingConvId ? { id: editingConvId } : {}),
       fecha: convForm.fecha,
       loteItemId: convForm.loteItemId,
       descripcion: convForm.descripcion,
@@ -159,6 +183,27 @@ export default function Inventario({
     });
     setConvForm(CONV_FORM_INIT);
     setConvLinea({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
+    setEditingConvId(null);
+  }
+
+  function editarConversion(conv) {
+    setConvForm({
+      fecha: conv.fecha,
+      loteItemId: conv.loteItemId,
+      descripcion: conv.descripcion || "",
+      cantidadLote: conv.cantidadLote?.toString() || "",
+      loteListo: conv.loteListo || false,
+      piezas: conv.piezas || [],
+    });
+    setEditingConvId(conv.id);
+    setTab("conversiones");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarConversion() {
+    setConvForm(CONV_FORM_INIT);
+    setConvLinea({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
+    setEditingConvId(null);
   }
 
   // ── Tab 4: Productos extra ───────────────────────────────────────────────
@@ -331,10 +376,17 @@ export default function Inventario({
       {/* ── Tab 2: Ajustes ── */}
       {tab === "ajustes" && (
         <div className="pg-320">
-          <Panel title="Nuevo ajuste de stock">
-            <p style={{ fontSize:13, color:"#64748b", margin:"0 0 16px" }}>
-              Corrección manual de stock. Usa <strong>positivo</strong> para sumar y <strong>negativo</strong> para restar.
-            </p>
+          <Panel title={editingAjusteId ? "✎ Editar ajuste" : "Nuevo ajuste de stock"}>
+            {editingAjusteId && (
+              <div style={{ background:"#fff8e1", border:"1px solid #ffd54f", borderRadius:8, padding:"8px 12px", fontSize:13, color:"#795548", marginBottom:12, fontWeight:600 }}>
+                ✎ Editando ajuste existente
+              </div>
+            )}
+            {!editingAjusteId && (
+              <p style={{ fontSize:13, color:"#64748b", margin:"0 0 16px" }}>
+                Corrección manual de stock. Usa <strong>positivo</strong> para sumar y <strong>negativo</strong> para restar.
+              </p>
+            )}
             <FormGrid>
               <Field label="Fecha">
                 <input type="date" style={inputStyle} value={ajForm.fecha}
@@ -373,8 +425,11 @@ export default function Inventario({
               </div>
             )}
 
-            <div style={{ marginTop:16 }}>
-              <DarkBtn onClick={guardarAjuste}>Guardar ajuste</DarkBtn>
+            <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:8 }}>
+              <DarkBtn onClick={guardarAjuste}>{editingAjusteId ? "Guardar cambios" : "Guardar ajuste"}</DarkBtn>
+              {editingAjusteId && (
+                <CancelBtn onClick={cancelarAjuste}>Cancelar edición</CancelBtn>
+              )}
             </div>
           </Panel>
 
@@ -382,17 +437,27 @@ export default function Inventario({
             {ajustes.length === 0 ? (
               <EmptyState icon="✏️" text="No hay ajustes. Los ajustes permiten corregir diferencias entre el sistema y la bodega real." />
             ) : (
-              <DataTable
-                headers={["Fecha","SKU","Δ","Motivo"]}
-                rows={[...ajustes].sort((a,b)=>b.fecha.localeCompare(a.fecha)).map((aj) => [
-                  aj.fecha,
-                  <span style={{ fontFamily:"monospace", fontSize:13 }}>{aj.sku}</span>,
-                  <span style={{ fontWeight:700, color: Number(aj.cantidad)>=0?"#059669":"#dc2626" }}>
-                    {Number(aj.cantidad)>0?"+":""}{aj.cantidad}
-                  </span>,
-                  aj.motivo || "—",
-                ])}
-              />
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {[...ajustes].sort((a,b) => b.fecha.localeCompare(a.fecha)).map((aj) => (
+                  <div key={aj.id}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"1px solid #e2e8f0",
+                             background: editingAjusteId === aj.id ? "#fff8e1" : "#f8fafc",
+                             borderColor: editingAjusteId === aj.id ? "#ffd54f" : "#e2e8f0" }}>
+                    <span style={{ fontSize:12, color:"#94a3b8", flexShrink:0, width:80 }}>{aj.fecha}</span>
+                    <span style={{ fontFamily:"monospace", fontSize:12, color:"#4338ca", background:"#e0e7ff", borderRadius:4, padding:"1px 6px", flexShrink:0 }}>{aj.sku}</span>
+                    <span style={{ fontWeight:800, color: Number(aj.cantidad)>=0?"#059669":"#dc2626", flexShrink:0, width:50 }}>
+                      {Number(aj.cantidad)>0?"+":""}{aj.cantidad}
+                    </span>
+                    <span style={{ flex:1, fontSize:13, color:"#475569" }}>{aj.motivo || "—"}</span>
+                    <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                      <EditBtn onClick={() => editarAjuste(aj)} />
+                      <DeleteBtn onClick={() => {
+                        if (window.confirm("¿Eliminar este ajuste? El stock se recalculará.")) onDeleteAjuste(aj.id);
+                      }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </Panel>
         </div>
@@ -402,7 +467,12 @@ export default function Inventario({
       {tab === "conversiones" && (
         <div className="pg-320">
           {/* ── Formulario ── */}
-          <Panel title="Nueva conversión / corte de material">
+          <Panel title={editingConvId ? "✎ Editar conversión" : "Nueva conversión / corte de material"}>
+            {editingConvId && (
+              <div style={{ background:"#fff8e1", border:"1px solid #ffd54f", borderRadius:8, padding:"8px 12px", fontSize:13, color:"#795548", marginBottom:12, fontWeight:600 }}>
+                ✎ Editando conversión registrada
+              </div>
+            )}
             <p style={{ fontSize:13, color:"#64748b", margin:"0 0 16px" }}>
               Registra cuánto material usaste de un lote y qué productos obtuviste al cortarlo o procesarlo.
             </p>
@@ -595,11 +665,16 @@ export default function Inventario({
                   </label>
                 )}
 
-                <DarkBtn
-                  onClick={guardarConversion}
-                  disabled={!convForm.loteItemId || convForm.piezas.length === 0}>
-                  ✓ Registrar conversión
-                </DarkBtn>
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  <DarkBtn
+                    onClick={guardarConversion}
+                    disabled={!convForm.loteItemId || convForm.piezas.length === 0}>
+                    {editingConvId ? "✓ Guardar cambios" : "✓ Registrar conversión"}
+                  </DarkBtn>
+                  {editingConvId && (
+                    <CancelBtn onClick={cancelarConversion}>Cancelar edición</CancelBtn>
+                  )}
+                </div>
               </div>
             )}
           </Panel>
@@ -658,10 +733,14 @@ export default function Inventario({
                   {[...conversiones].sort((a,b) => b.fecha.localeCompare(a.fecha)).map((conv) => {
                     const lote = lotesEnriquecidos.find((l) => l.id === conv.loteItemId);
                     const totalPiezas = (conv.piezas||[]).reduce((a,p) => a + p.cantidad * p.costoUnitario, 0);
+                    const isEditingThis = editingConvId === conv.id;
+                    // Detectar piezas cuyo SKU ya no existe en el catálogo
+                    const piezasHuerfanas = (conv.piezas||[]).filter((p) => !catalogo.find((i) => i.sku === p.sku));
                     return (
-                      <div key={conv.id} style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px" }}>
+                      <div key={conv.id} style={{ background: isEditingThis ? "#fff8e1" : "#f8fafc", borderRadius:10,
+                             border: isEditingThis ? "1.5px solid #ffd54f" : "1px solid #e2e8f0", padding:"12px 14px" }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:6 }}>
-                          <div>
+                          <div style={{ flex:1 }}>
                             <div style={{ fontWeight:700, fontSize:13 }}>{conv.descripcion || "Conversión de lote"}</div>
                             <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>
                               {conv.fecha} · {lote?.nombreLibre || lote?.sku || "—"}
@@ -676,19 +755,37 @@ export default function Inventario({
                                 </span>
                               )}
                             </div>
+                            {/* Advertencia si hay SKUs que no existen en catálogo */}
+                            {piezasHuerfanas.length > 0 && (
+                              <div style={{ marginTop:6, fontSize:11, color:"#dc2626", fontWeight:600, background:"#fef2f2", borderRadius:4, padding:"3px 8px", display:"inline-block" }}>
+                                ⚠ {piezasHuerfanas.length} SKU(s) no encontrados en catálogo: {piezasHuerfanas.map(p=>p.sku).join(", ")} — no impactan inventario
+                              </div>
+                            )}
                           </div>
-                          <div style={{ textAlign:"right" }}>
-                            <div style={{ fontSize:13, fontWeight:700 }}>{money(totalPiezas)}</div>
-                            <div style={{ fontSize:12, color:"#64748b" }}>{conv.piezas?.length||0} productos</div>
+                          <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                            <div style={{ textAlign:"right" }}>
+                              <div style={{ fontSize:13, fontWeight:700 }}>{money(totalPiezas)}</div>
+                              <div style={{ fontSize:12, color:"#64748b" }}>{conv.piezas?.length||0} productos</div>
+                            </div>
+                            <div style={{ display:"flex", gap:4 }}>
+                              <EditBtn onClick={() => editarConversion(conv)} />
+                              <DeleteBtn onClick={() => {
+                                if (window.confirm("¿Eliminar esta conversión? El stock de las piezas se recalculará.")) onDeleteConversion(conv.id);
+                              }} />
+                            </div>
                           </div>
                         </div>
                         <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:10 }}>
-                          {(conv.piezas||[]).map((p) => (
-                            <div key={p.id} style={{ fontSize:12, background:"#dbeafe", color:"#1d4ed8", borderRadius:6, padding:"3px 10px", fontWeight:600 }}>
-                              <span>{p.sku} ×{p.cantidad}</span>
-                              {p.descPieza && <span style={{ marginLeft:4, opacity:.75 }}>({p.descPieza})</span>}
-                            </div>
-                          ))}
+                          {(conv.piezas||[]).map((p) => {
+                            const enCatalogo = catalogo.find((i) => i.sku === p.sku);
+                            return (
+                              <div key={p.id} style={{ fontSize:12, background: enCatalogo ? "#dbeafe" : "#fee2e2", color: enCatalogo ? "#1d4ed8" : "#dc2626", borderRadius:6, padding:"3px 10px", fontWeight:600 }}>
+                                <span>{p.sku} ×{p.cantidad}</span>
+                                {p.descPieza && <span style={{ marginLeft:4, opacity:.75 }}>({p.descPieza})</span>}
+                                {!enCatalogo && <span style={{ marginLeft:4 }}>⚠</span>}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -766,26 +863,108 @@ export default function Inventario({
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                 {productosExtra.map((p) => {
-                  const enCatalogo = catalogo.find((i) => i.sku === p.sku);
+                  const enCatalogo  = catalogo.find((i) => i.sku === p.sku);
+                  const isEditing   = editingProdId === p.id;
                   return (
-                    <div key={p.id} style={{ background:"#f8fafc", borderRadius:10, border:"1px solid #e2e8f0", padding:"12px 14px", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
-                      <div style={{ flex:1 }}>
-                        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                          <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:700, color:"#4338ca", background:"#e0e7ff", borderRadius:4, padding:"2px 6px" }}>{p.sku}</span>
-                          <span style={{ fontWeight:700 }}>{p.nombre}</span>
+                    <div key={p.id} style={{ background: isEditing ? "#fffbeb" : "#f8fafc", borderRadius:10, border: isEditing ? "1.5px solid #f59e0b" : "1px solid #e2e8f0", padding:"12px 14px" }}>
+                      {isEditing ? (
+                        /* ── inline edit form ── */
+                        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:"#92400e", marginBottom:2 }}>✎ Editando producto</div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                            <div>
+                              <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>SKU</div>
+                              <input style={{ ...inputStyle, fontFamily:"monospace", fontSize:13 }} value={editProdForm.sku}
+                                onChange={(e) => setEditProdForm({ ...editProdForm, sku: e.target.value.toUpperCase() })} />
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Nombre</div>
+                              <input style={inputStyle} value={editProdForm.nombre}
+                                onChange={(e) => setEditProdForm({ ...editProdForm, nombre: e.target.value })} />
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Categoría</div>
+                              <select style={selectStyle} value={editProdForm.categoria}
+                                onChange={(e) => setEditProdForm({ ...editProdForm, categoria: e.target.value })}>
+                                {CATEGORIAS_EXTRA.map((c) => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Tipo</div>
+                              <select style={selectStyle} value={editProdForm.tipo}
+                                onChange={(e) => setEditProdForm({ ...editProdForm, tipo: e.target.value })}>
+                                {TIPOS_EXTRA.map((t) => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Costo base</div>
+                              <input type="number" style={inputStyle} placeholder="0" value={editProdForm.costoBase}
+                                onChange={(e) => setEditProdForm({ ...editProdForm, costoBase: e.target.value })} />
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Precio venta</div>
+                              <input type="number" style={inputStyle} placeholder="0" value={editProdForm.precioVenta}
+                                onChange={(e) => setEditProdForm({ ...editProdForm, precioVenta: e.target.value })} />
+                            </div>
+                          </div>
+                          <div style={{ display:"flex", gap:8, marginTop:4 }}>
+                            <DarkBtn onClick={() => {
+                              if (!editProdForm.sku.trim() || !editProdForm.nombre.trim()) return;
+                              // check SKU conflict (excluding self)
+                              const skuUpper = editProdForm.sku.trim().toUpperCase();
+                              const conflict = catalogo.find((i) => i.sku === skuUpper && i.sku !== p.sku);
+                              if (conflict) { alert(`El SKU "${skuUpper}" ya existe.`); return; }
+                              onUpdateProducto?.({
+                                ...p,
+                                sku: skuUpper,
+                                nombre: editProdForm.nombre.trim(),
+                                categoria: editProdForm.categoria,
+                                tipo: editProdForm.tipo,
+                                costoBase: Number(editProdForm.costoBase || 0),
+                                precioVenta: Number(editProdForm.precioVenta || 0),
+                              });
+                              setEditingProdId(null);
+                            }}>
+                              Guardar cambios
+                            </DarkBtn>
+                            <CancelBtn onClick={() => setEditingProdId(null)}>Cancelar</CancelBtn>
+                          </div>
                         </div>
-                        <div style={{ fontSize:12, color:"#64748b", marginTop:4, display:"flex", gap:12 }}>
-                          <span>{p.categoria} · {p.tipo}</span>
-                          {p.costoBase > 0 && <span>Costo: {money(p.costoBase)}</span>}
-                          {p.precioVenta > 0 && <span style={{ color:"#059669" }}>Venta: {money(p.precioVenta)}</span>}
-                          {enCatalogo && <span>Stock: {enCatalogo.stock} {p.unidad}</span>}
+                      ) : (
+                        /* ── normal card view ── */
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                          <div style={{ flex:1 }}>
+                            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                              <span style={{ fontFamily:"monospace", fontSize:12, fontWeight:700, color:"#4338ca", background:"#e0e7ff", borderRadius:4, padding:"2px 6px" }}>{p.sku}</span>
+                              <span style={{ fontWeight:700 }}>{p.nombre}</span>
+                            </div>
+                            <div style={{ fontSize:12, color:"#64748b", marginTop:4, display:"flex", gap:12, flexWrap:"wrap" }}>
+                              <span>{p.categoria} · {p.tipo}</span>
+                              {p.costoBase > 0 && <span>Costo: {money(p.costoBase)}</span>}
+                              {p.precioVenta > 0 && <span style={{ color:"#059669" }}>Venta: {money(p.precioVenta)}</span>}
+                              {enCatalogo && <span>Stock: {enCatalogo.stock} {p.unidad}</span>}
+                            </div>
+                          </div>
+                          <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+                            <EditBtn onClick={() => {
+                              setEditingProdId(p.id);
+                              setEditProdForm({
+                                sku: p.sku,
+                                nombre: p.nombre,
+                                categoria: p.categoria || "Otro",
+                                tipo: p.tipo || "Inventario propio",
+                                costoBase: p.costoBase?.toString() || "",
+                                precioVenta: p.precioVenta?.toString() || "",
+                              });
+                            }} />
+                            <DeleteBtn onClick={() => {
+                              if (window.confirm(`¿Eliminar el producto ${p.sku}? Esto no elimina los movimientos existentes.`)) {
+                                onDeleteProducto(p.id);
+                              }
+                            }} />
+                          </div>
                         </div>
-                      </div>
-                      <DeleteBtn onClick={() => {
-                        if (window.confirm(`¿Eliminar el producto ${p.sku}? Esto no elimina los movimientos existentes.`)) {
-                          onDeleteProducto(p.id);
-                        }
-                      }} />
+                      )}
                     </div>
                   );
                 })}

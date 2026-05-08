@@ -14,21 +14,21 @@ export const CATALOGO_BASE = [
     }))
   ),
   ...[150, 200, 240, 280, 300].flatMap((largo) =>
-    [40, 50, 60, 80].map((prof) => ({
+    [40, 50, 60, 80, 100].map((prof) => ({
       id: `GALV-${largo}-${prof}`, sku: `GALV-${largo}-${prof}`,
       nombre: `Entrepaño galvanizado ${formatMeters(largo)} x ${formatMeters(prof)}`,
       categoria: "Galvanizado", tipo: "Reventa", unidad: "und", costoBase: 0,
     }))
   ),
   ...[150, 200, 240, 280, 300].flatMap((largo) =>
-    [40, 50, 60, 80].map((prof) => ({
+    [40, 50, 60, 80, 100].map((prof) => ({
       id: `MDECO-${largo}-${prof}`, sku: `MDECO-${largo}-${prof}`,
       nombre: `Entrepaño madera económica ${formatMeters(largo)} x ${formatMeters(prof)}`,
       categoria: "Madera económica", tipo: "Inventario propio", unidad: "und", costoBase: 0,
     }))
   ),
   ...[150, 200, 240, 280, 300].flatMap((largo) =>
-    [40, 50, 60, 80].map((prof) => ({
+    [40, 50, 60, 80, 100].map((prof) => ({
       id: `MPREM-${largo}-${prof}`, sku: `MPREM-${largo}-${prof}`,
       nombre: `Entrepaño madera premium ${formatMeters(largo)} x ${formatMeters(prof)}`,
       categoria: "Madera premium", tipo: "Bajo pedido", unidad: "und", costoBase: 0,

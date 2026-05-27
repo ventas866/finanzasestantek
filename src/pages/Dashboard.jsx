@@ -345,26 +345,31 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
   }, [ventas, compras, gastos, inversiones, catalogo, retiros, rendimientos]);
 
   // ── Análisis de retiros por socio ─────────────────────────────────────────
+  // Regla: utilidad se reparte 40% Raúl / 60% Nicolás y Luisa (fijo, independiente del capital).
+  // El capital invertido se devuelve aparte en ~2 años y NO entra en este cálculo.
   const retirosPorSocio = useMemo(() => {
-    const totalCapital       = inversiones.reduce((a, i) => a + i.valor, 0);
-    const totalIngresos      = ventas.reduce((a, v) => a + v.total, 0);
-    const totalRendimientos  = rendimientos.reduce((a, r) => a + r.monto, 0);
-    const totalComprasBase   = compras.reduce((a, c) => a + c.total, 0);
-    const totalPagosReventa  = ventas.reduce((a, v) => a + (v.pagosProvReventa||[]).reduce((b,p)=>b+p.monto,0), 0);
-    const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
-    const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
-    const cajaDisponible     = totalCapital + totalIngresos + totalRendimientos - totalComprasBase - totalPagosReventa - totalGastosOp - totalRetiros;
-    const conStock           = catalogo.filter((x) => x.stock > 0);
-    const valorInv           = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
-    const saldoDistribuible  = cajaDisponible - valorInv;
+    const totalIngresos     = ventas.reduce((a, v) => a + v.total, 0);
+    const totalRendimientos = rendimientos.reduce((a, r) => a + r.monto, 0);
+    const totalComprasBase  = compras.reduce((a, c) => a + c.total, 0);
+    const totalPagosReventa = ventas.reduce((a, v) => a + (v.pagosProvReventa||[]).reduce((b,p)=>b+p.monto,0), 0);
+    const totalGastosOp     = gastos.reduce((a, g) => a + g.valor, 0);
+    const conStock          = catalogo.filter((x) => x.stock > 0);
+    const valorInv          = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
+
+    // Utilidad acumulada = ingresos − egresos operativos − inventario inmovilizado
+    // NO se descuenta el capital (se devuelve aparte) NI los retiros (son distribuciones de esta utilidad)
+    const utilidad = totalIngresos + totalRendimientos - totalComprasBase - totalPagosReventa - totalGastosOp - valorInv;
+
+    // Capital por socio (informativo — se devolverá en ~2 años)
+    const totalCapital = inversiones.reduce((a, i) => a + i.valor, 0);
 
     return SOCIOS_DEF.map((sc) => {
       const capitalAportado = inversiones.filter((i) => i.socio === sc.value).reduce((a, i) => a + i.valor, 0);
-      const pctReal   = totalCapital > 0 ? capitalAportado / totalCapital : sc.pct;
-      const yaRetirado    = retiros.filter((r) => r.socio === sc.value).reduce((a, r) => a + r.monto, 0);
-      const leCorresponde = Math.max(0, saldoDistribuible) * pctReal;
-      const disponible    = leCorresponde - yaRetirado;
-      return { ...sc, capitalAportado, pctReal, yaRetirado, leCorresponde, disponible, saldoDistribuible };
+      const yaRetirado      = retiros.filter((r) => r.socio === sc.value).reduce((a, r) => a + r.monto, 0);
+      // Siempre % fijo (no depende del % real de capital)
+      const leCorresponde   = utilidad * sc.pct;
+      const disponible      = leCorresponde - yaRetirado;
+      return { ...sc, capitalAportado, totalCapital, utilidad, yaRetirado, leCorresponde, disponible };
     });
   }, [inversiones, ventas, compras, gastos, retiros, rendimientos, catalogo]);
 
@@ -676,39 +681,59 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
               {retirosPorSocio.map((sc) => (
                 <div key={sc.value} style={{ border:`2px solid ${sc.border}`, borderRadius:14, padding:"14px 16px", background:sc.bg }}>
+                  {/* Encabezado socio */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
                     <div>
                       <div style={{ fontWeight:800, fontSize:14, color:sc.color }}>{sc.label}</div>
                       <div style={{ fontSize:11, color:C.ink4, marginTop:1 }}>
-                        {(sc.pctReal * 100).toFixed(1)}% del capital aportado
+                        {Math.round(sc.pct * 100)}% de la utilidad · capital: {money(sc.capitalAportado)}
                       </div>
                     </div>
-                    <div style={{ fontSize:20, fontWeight:900, color:sc.color, opacity:0.35 }}>{Math.round(sc.pctReal*100)}%</div>
+                    <div style={{ fontSize:22, fontWeight:900, color:sc.color, opacity:0.25 }}>{Math.round(sc.pct*100)}%</div>
                   </div>
+
+                  {/* Desglose */}
                   <div style={{ display:"flex", flexDirection:"column", gap:5, fontSize:12 }}>
                     <div style={{ display:"flex", justifyContent:"space-between" }}>
-                      <span style={{ color:C.ink3 }}>Capital aportado</span>
-                      <span style={{ fontWeight:600, color:C.ink }}>{money(sc.capitalAportado)}</span>
+                      <span style={{ color:C.ink3 }}>Utilidad acumulada</span>
+                      <span style={{ fontWeight:600, color:C.ink }}>{money(sc.utilidad)}</span>
                     </div>
                     <div style={{ display:"flex", justifyContent:"space-between" }}>
-                      <span style={{ color:C.ink3 }}>Le corresponde</span>
+                      <span style={{ color:C.ink3 }}>Le corresponde ({Math.round(sc.pct*100)}%)</span>
                       <span style={{ fontWeight:600, color:C.positive }}>{money(sc.leCorresponde)}</span>
                     </div>
                     <div style={{ display:"flex", justifyContent:"space-between" }}>
                       <span style={{ color:C.ink3 }}>Ya retirado</span>
                       <span style={{ fontWeight:600, color:C.negative }}>− {money(sc.yaRetirado)}</span>
                     </div>
-                    <div style={{ height:1, background: sc.border, margin:"3px 0" }} />
+                    <div style={{ height:1, background:sc.border, margin:"3px 0" }} />
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                       <span style={{ fontWeight:700, color:C.ink }}>Disponible</span>
-                      <span style={{ fontWeight:800, fontSize:14, color: sc.disponible >= 0 ? C.positive : C.negative }}>
+                      <span style={{ fontWeight:800, fontSize:15, color: sc.disponible >= 0 ? C.positive : C.negative }}>
                         {money(sc.disponible)}
                       </span>
                     </div>
                     {sc.disponible < 0 && (
-                      <div style={{ fontSize:10, color:C.negative, fontStyle:"italic" }}>⚠ Excede el saldo distribuible</div>
+                      <div style={{ fontSize:10, color:C.negative, fontStyle:"italic", marginTop:2 }}>⚠ Ha retirado más de lo generado</div>
+                    )}
+                    {sc.utilidad < 0 && (
+                      <div style={{ fontSize:10, color:"#E65100", fontStyle:"italic", marginTop:2 }}>⚠ La empresa aún no genera utilidad neta</div>
                     )}
                   </div>
+
+                  {/* Barra de progreso retiro */}
+                  {sc.leCorresponde > 0 && (
+                    <div style={{ marginTop:10 }}>
+                      <div style={{ height:6, background:"#e5e7eb", borderRadius:99, overflow:"hidden" }}>
+                        <div style={{ height:"100%", borderRadius:99, background:sc.color,
+                          width:`${Math.min(100, (sc.yaRetirado / sc.leCorresponde) * 100)}%`,
+                          transition:"width .4s" }} />
+                      </div>
+                      <div style={{ fontSize:10, color:C.ink4, marginTop:3 }}>
+                        {((sc.yaRetirado / sc.leCorresponde) * 100).toFixed(1)}% retirado de su parte
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -76,6 +76,12 @@ function PieTooltip({ active, payload }) {
   );
 }
 
+// ─── Socios (fuente única de verdad) ─────────────────────────────────────────
+const SOCIOS_DEF = [
+  { value:"Raúl",            label:"Raúl",            pct:0.40, color:"#6366f1", bg:"#eef2ff", border:"#a5b4fc" },
+  { value:"Nicolás y Luisa", label:"Nicolás y Luisa", pct:0.60, color:"#E65100", bg:"#FFF3E0", border:"#FFCC80" },
+];
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], onRetiro, onEditarRetiro, onEliminarRetiro, onRendimiento }) {
   const [chartPeriod, setChartPeriod] = useState("6");
@@ -337,6 +343,30 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       cajaDisponible, valorInv, saldoDistribuible,
     };
   }, [ventas, compras, gastos, inversiones, catalogo, retiros, rendimientos]);
+
+  // ── Análisis de retiros por socio ─────────────────────────────────────────
+  const retirosPorSocio = useMemo(() => {
+    const totalCapital       = inversiones.reduce((a, i) => a + i.valor, 0);
+    const totalIngresos      = ventas.reduce((a, v) => a + v.total, 0);
+    const totalRendimientos  = rendimientos.reduce((a, r) => a + r.monto, 0);
+    const totalComprasBase   = compras.reduce((a, c) => a + c.total, 0);
+    const totalPagosReventa  = ventas.reduce((a, v) => a + (v.pagosProvReventa||[]).reduce((b,p)=>b+p.monto,0), 0);
+    const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
+    const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
+    const cajaDisponible     = totalCapital + totalIngresos + totalRendimientos - totalComprasBase - totalPagosReventa - totalGastosOp - totalRetiros;
+    const conStock           = catalogo.filter((x) => x.stock > 0);
+    const valorInv           = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
+    const saldoDistribuible  = cajaDisponible - valorInv;
+
+    return SOCIOS_DEF.map((sc) => {
+      const capitalAportado = inversiones.filter((i) => i.socio === sc.value).reduce((a, i) => a + i.valor, 0);
+      const pctReal   = totalCapital > 0 ? capitalAportado / totalCapital : sc.pct;
+      const yaRetirado    = retiros.filter((r) => r.socio === sc.value).reduce((a, r) => a + r.monto, 0);
+      const leCorresponde = Math.max(0, saldoDistribuible) * pctReal;
+      const disponible    = leCorresponde - yaRetirado;
+      return { ...sc, capitalAportado, pctReal, yaRetirado, leCorresponde, disponible, saldoDistribuible };
+    });
+  }, [inversiones, ventas, compras, gastos, retiros, rendimientos, catalogo]);
 
   const hasData = ventas.length > 0;
 
@@ -627,43 +657,101 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
         <div style={{ marginTop:20, paddingTop:20, borderTop:`1px solid ${C.border}`, display:"flex", gap:16, flexWrap:"wrap" }}>
 
           {/* ── Retiros de socios ── */}
-          <div style={{ flex:1, minWidth:240 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <div style={{ width:"100%" }}>
+            {/* Header */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
               <div>
-                <div style={{ fontWeight:700, fontSize:14, color:C.ink }}>💸 Retiros de socios</div>
+                <div style={{ fontWeight:700, fontSize:15, color:C.ink }}>💸 Retiros de socios</div>
                 <div style={{ fontSize:12, color:C.ink4 }}>Total retirado: <strong style={{ color:C.negative }}>{money(distribucion.totalRetiros)}</strong></div>
               </div>
               {!showRetiroForm && (
                 <button onClick={() => { setEditingRetiroId(null); setRetiroForm({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" }); setShowRetiroForm(true); }}
-                  style={{ border:`1px solid ${C.negative}`, background:"white", color:C.negative, borderRadius:8, padding:"6px 12px", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                  style={{ border:`1px solid ${C.negative}`, background:"white", color:C.negative, borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>
                   + Nuevo retiro
                 </button>
               )}
             </div>
-            {showRetiroForm && (
-              <div style={{ border:`1px solid ${editingRetiroId ? "#ffd54f" : C.border2}`, background: editingRetiroId ? "#fff8e1" : "white", borderRadius:10, padding:12, display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
-                {editingRetiroId && <div style={{ fontSize:12, fontWeight:700, color:"#92400e" }}>✎ Editando retiro</div>}
-                <div style={{ display:"flex", gap:8 }}>
-                  <input type="date" value={retiroForm.fecha} onChange={(e) => setRetiroForm({ ...retiroForm, fecha:e.target.value })}
-                    style={{ ...dInpSt, flex:1 }} />
-                  <input type="text" placeholder="Socio" value={retiroForm.socio} onChange={(e) => setRetiroForm({ ...retiroForm, socio:e.target.value })}
-                    style={{ ...dInpSt, flex:1 }} />
+
+            {/* ── Tarjetas de análisis por socio ── */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+              {retirosPorSocio.map((sc) => (
+                <div key={sc.value} style={{ border:`2px solid ${sc.border}`, borderRadius:14, padding:"14px 16px", background:sc.bg }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontWeight:800, fontSize:14, color:sc.color }}>{sc.label}</div>
+                      <div style={{ fontSize:11, color:C.ink4, marginTop:1 }}>
+                        {(sc.pctReal * 100).toFixed(1)}% del capital aportado
+                      </div>
+                    </div>
+                    <div style={{ fontSize:20, fontWeight:900, color:sc.color, opacity:0.35 }}>{Math.round(sc.pctReal*100)}%</div>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:5, fontSize:12 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between" }}>
+                      <span style={{ color:C.ink3 }}>Capital aportado</span>
+                      <span style={{ fontWeight:600, color:C.ink }}>{money(sc.capitalAportado)}</span>
+                    </div>
+                    <div style={{ display:"flex", justifyContent:"space-between" }}>
+                      <span style={{ color:C.ink3 }}>Le corresponde</span>
+                      <span style={{ fontWeight:600, color:C.positive }}>{money(sc.leCorresponde)}</span>
+                    </div>
+                    <div style={{ display:"flex", justifyContent:"space-between" }}>
+                      <span style={{ color:C.ink3 }}>Ya retirado</span>
+                      <span style={{ fontWeight:600, color:C.negative }}>− {money(sc.yaRetirado)}</span>
+                    </div>
+                    <div style={{ height:1, background: sc.border, margin:"3px 0" }} />
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontWeight:700, color:C.ink }}>Disponible</span>
+                      <span style={{ fontWeight:800, fontSize:14, color: sc.disponible >= 0 ? C.positive : C.negative }}>
+                        {money(sc.disponible)}
+                      </span>
+                    </div>
+                    {sc.disponible < 0 && (
+                      <div style={{ fontSize:10, color:C.negative, fontStyle:"italic" }}>⚠ Excede el saldo distribuible</div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display:"flex", gap:8 }}>
-                  <input type="number" placeholder="Monto" value={retiroForm.monto} onChange={(e) => setRetiroForm({ ...retiroForm, monto:e.target.value })}
-                    style={{ ...dInpSt, flex:1 }} />
+              ))}
+            </div>
+
+            {/* ── Formulario nuevo / edición ── */}
+            {showRetiroForm && (
+              <div style={{ border:`1px solid ${editingRetiroId ? "#ffd54f" : C.border2}`, background: editingRetiroId ? "#fff8e1" : "white", borderRadius:12, padding:14, display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
+                {editingRetiroId && <div style={{ fontSize:12, fontWeight:700, color:"#92400e" }}>✎ Editando retiro existente</div>}
+
+                {/* Selector visual de socio */}
+                <div>
+                  <div style={{ fontSize:11, fontWeight:600, color:C.ink3, marginBottom:6 }}>Socio que retira</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                    {SOCIOS_DEF.map((sc) => (
+                      <div key={sc.value} onClick={() => setRetiroForm({ ...retiroForm, socio:sc.value })}
+                        style={{ border:`2px solid ${retiroForm.socio === sc.value ? sc.color : C.border2}`,
+                          background: retiroForm.socio === sc.value ? sc.bg : "#fafafa",
+                          borderRadius:10, padding:"10px 12px", cursor:"pointer", transition:"all .15s" }}>
+                        <div style={{ fontWeight:700, fontSize:13, color: retiroForm.socio === sc.value ? sc.color : C.ink }}>{sc.label}</div>
+                        <div style={{ fontSize:11, color:C.ink4, marginTop:2 }}>{Math.round(sc.pct*100)}% participación</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  <input type="date" value={retiroForm.fecha} onChange={(e) => setRetiroForm({ ...retiroForm, fecha:e.target.value })}
+                    style={{ ...dInpSt, flex:1, minWidth:120 }} />
+                  <input type="number" placeholder="Monto $" value={retiroForm.monto} onChange={(e) => setRetiroForm({ ...retiroForm, monto:e.target.value })}
+                    style={{ ...dInpSt, flex:1, minWidth:120 }} />
                   <select value={retiroForm.cuentaId} onChange={(e) => setRetiroForm({ ...retiroForm, cuentaId:e.target.value })}
-                    style={{ ...dInpSt, flex:1 }}>
+                    style={{ ...dInpSt, flex:1, minWidth:120 }}>
                     <option value="">— Cuenta —</option>
                     {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                   </select>
                 </div>
                 <input placeholder="Nota (opcional)" value={retiroForm.nota} onChange={(e) => setRetiroForm({ ...retiroForm, nota:e.target.value })}
                   style={dInpSt} />
+
                 <div style={{ display:"flex", gap:8 }}>
                   <button onClick={() => {
                     const monto = Number(retiroForm.monto || 0);
-                    if (!monto) return;
+                    if (!monto || !retiroForm.socio) { alert("Selecciona un socio e ingresa el monto."); return; }
                     if (editingRetiroId) {
                       onEditarRetiro?.({ id:editingRetiroId, fecha:retiroForm.fecha, socio:retiroForm.socio, monto, cuentaId:retiroForm.cuentaId||null, nota:retiroForm.nota });
                     } else {
@@ -672,41 +760,54 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
                     setRetiroForm({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" });
                     setEditingRetiroId(null);
                     setShowRetiroForm(false);
-                  }} style={{ flex:1, background:C.negative, color:"white", border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
-                    {editingRetiroId ? "✓ Guardar cambios" : "Registrar retiro"}
+                  }} style={{ flex:1, background:C.negative, color:"white", border:"none", borderRadius:8, padding:"9px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    {editingRetiroId ? "✓ Guardar cambios" : "✓ Registrar retiro"}
                   </button>
                   <button onClick={() => { setShowRetiroForm(false); setEditingRetiroId(null); setRetiroForm({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" }); }}
-                    style={{ flex:1, background:"#f5f5f5", color:C.ink3, border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                    style={{ background:"#f5f5f5", color:C.ink3, border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
                     Cancelar
                   </button>
                 </div>
               </div>
             )}
+
+            {/* ── Historial ── */}
             {retiros.length > 0 ? (
               <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                {[...retiros].sort((a,b)=>b.fecha.localeCompare(a.fecha)).map((r) => (
-                  <div key={r.id} className="tr-hover" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 10px",
-                    background: editingRetiroId === r.id ? "#fff8e1" : C.negBg,
-                    border: editingRetiroId === r.id ? "1px solid #ffd54f" : "1px solid transparent",
-                    borderRadius:8, fontSize:13 }}>
-                    <span style={{ color:C.ink3 }}>
-                      {r.fecha}{r.socio ? ` · ${r.socio}` : ""}{r.nota ? ` · ${r.nota}` : ""}
-                      {r.cuentaId && <span style={{ marginLeft:4, fontSize:11, color:C.ink4 }}>({cuentas.find((c)=>c.id===r.cuentaId)?.nombre})</span>}
-                    </span>
-                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                      <span style={{ fontWeight:700, color:C.negative }}>{money(r.monto)}</span>
-                      <div className="row-actions" style={{ display:"flex", gap:4 }}>
-                        <button title="Editar" onClick={() => {
-                          setEditingRetiroId(r.id);
-                          setRetiroForm({ fecha:r.fecha, socio:r.socio||"", monto:String(r.monto), cuentaId:r.cuentaId||"", nota:r.nota||"" });
-                          setShowRetiroForm(true);
-                        }} style={{ border:"none", background:"#dbeafe", color:"#1d4ed8", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11 }}>✎</button>
-                        <button title="Eliminar" onClick={() => { if (window.confirm("¿Eliminar este retiro?")) onEliminarRetiro?.(r.id); }}
-                          style={{ border:"none", background:"#fee2e2", color:"#dc2626", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11 }}>🗑</button>
+                {[...retiros].sort((a,b)=>b.fecha.localeCompare(a.fecha)).map((r) => {
+                  const sc = SOCIOS_DEF.find((s) => s.value === r.socio);
+                  return (
+                    <div key={r.id} className="tr-hover" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 10px",
+                      background: editingRetiroId === r.id ? "#fff8e1" : C.negBg,
+                      border: editingRetiroId === r.id ? "1px solid #ffd54f" : "1px solid transparent",
+                      borderRadius:9, fontSize:13 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, flex:1, minWidth:0 }}>
+                        {sc && (
+                          <span style={{ flexShrink:0, fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:20,
+                            background:sc.bg, color:sc.color, border:`1px solid ${sc.border}` }}>
+                            {sc.label}
+                          </span>
+                        )}
+                        <span style={{ color:C.ink3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          {r.fecha}{r.nota ? ` · ${r.nota}` : ""}
+                          {r.cuentaId && <span style={{ marginLeft:4, fontSize:11, color:C.ink4 }}>({cuentas.find((c)=>c.id===r.cuentaId)?.nombre})</span>}
+                        </span>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                        <span style={{ fontWeight:700, color:C.negative }}>{money(r.monto)}</span>
+                        <div className="row-actions" style={{ display:"flex", gap:4 }}>
+                          <button title="Editar" onClick={() => {
+                            setEditingRetiroId(r.id);
+                            setRetiroForm({ fecha:r.fecha, socio:r.socio||"", monto:String(r.monto), cuentaId:r.cuentaId||"", nota:r.nota||"" });
+                            setShowRetiroForm(true);
+                          }} style={{ border:"none", background:"#dbeafe", color:"#1d4ed8", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11 }}>✎</button>
+                          <button title="Eliminar" onClick={() => { if (window.confirm("¿Eliminar este retiro?")) onEliminarRetiro?.(r.id); }}
+                            style={{ border:"none", background:"#fee2e2", color:"#dc2626", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11 }}>🗑</button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div style={{ fontSize:13, color:C.ink4, fontStyle:"italic" }}>Sin retiros registrados</div>

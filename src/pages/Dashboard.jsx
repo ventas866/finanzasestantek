@@ -347,31 +347,32 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
   // ── Análisis de retiros por socio ─────────────────────────────────────────
   // Regla: utilidad se reparte 40% Raúl / 60% Nicolás y Luisa (fijo, independiente del capital).
   // El capital invertido se devuelve aparte en ~2 años y NO entra en este cálculo.
+  //
+  // IMPORTANTE: la utilidad usa el mismo criterio que el KPI "Ganancia neta":
+  //   ingresos − costoTotal(ventas, accrual) − gastos_operativos
+  // Así: ventas de reventa pendientes de pago al proveedor SÍ reducen la utilidad
+  // (aunque el pago físico no se haya hecho aún), igual que en los KPIs.
   const retirosPorSocio = useMemo(() => {
     const totalIngresos     = ventas.reduce((a, v) => a + v.total, 0);
     const totalRendimientos = rendimientos.reduce((a, r) => a + r.monto, 0);
-    const totalComprasBase  = compras.reduce((a, c) => a + c.total, 0);
-    const totalPagosReventa = ventas.reduce((a, v) => a + (v.pagosProvReventa||[]).reduce((b,p)=>b+p.monto,0), 0);
+    // costoTotal de cada venta ya incluye costo propio + reventa (accrual) — igual que en KPIs
+    const totalCostoVentas  = ventas.reduce((a, v) => a + (v.costoTotal || 0), 0);
     const totalGastosOp     = gastos.reduce((a, g) => a + g.valor, 0);
-    const conStock          = catalogo.filter((x) => x.stock > 0);
-    const valorInv          = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
 
-    // Utilidad acumulada = ingresos − egresos operativos − inventario inmovilizado
-    // NO se descuenta el capital (se devuelve aparte) NI los retiros (son distribuciones de esta utilidad)
-    const utilidad = totalIngresos + totalRendimientos - totalComprasBase - totalPagosReventa - totalGastosOp - valorInv;
+    // Utilidad neta = igual a "Ganancia neta" del dashboard
+    // NO se descuenta capital (se devuelve aparte) NI retiros (son distribuciones de esta utilidad)
+    const utilidad = totalIngresos + totalRendimientos - totalCostoVentas - totalGastosOp;
 
-    // Capital por socio (informativo — se devolverá en ~2 años)
     const totalCapital = inversiones.reduce((a, i) => a + i.valor, 0);
 
     return SOCIOS_DEF.map((sc) => {
       const capitalAportado = inversiones.filter((i) => i.socio === sc.value).reduce((a, i) => a + i.valor, 0);
       const yaRetirado      = retiros.filter((r) => r.socio === sc.value).reduce((a, r) => a + r.monto, 0);
-      // Siempre % fijo (no depende del % real de capital)
       const leCorresponde   = utilidad * sc.pct;
       const disponible      = leCorresponde - yaRetirado;
       return { ...sc, capitalAportado, totalCapital, utilidad, yaRetirado, leCorresponde, disponible };
     });
-  }, [inversiones, ventas, compras, gastos, retiros, rendimientos, catalogo]);
+  }, [inversiones, ventas, gastos, retiros, rendimientos]);
 
   const hasData = ventas.length > 0;
 

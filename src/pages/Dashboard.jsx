@@ -77,16 +77,17 @@ function PieTooltip({ active, payload }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], onRetiro, onRendimiento }) {
+export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], onRetiro, onEditarRetiro, onEliminarRetiro, onRendimiento }) {
   const [chartPeriod, setChartPeriod] = useState("6");
   const [filtroAno,   setFiltroAno]   = useState("");   // "" = histórico total
   const [filtroMes,   setFiltroMes]   = useState("");   // "01"–"12", solo activo si filtroAno
 
   // Forms retiros / rendimientos
-  const [showRetiroForm, setShowRetiroForm] = useState(false);
-  const [retiroForm,     setRetiroForm]     = useState({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" });
-  const [showRendForm,   setShowRendForm]   = useState(false);
-  const [rendForm,       setRendForm]       = useState({ fecha:today(), monto:"", cuentaId:"", nota:"Rendimiento NU" });
+  const [showRetiroForm,  setShowRetiroForm]  = useState(false);
+  const [retiroForm,      setRetiroForm]      = useState({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" });
+  const [editingRetiroId, setEditingRetiroId] = useState(null);
+  const [showRendForm,    setShowRendForm]    = useState(false);
+  const [rendForm,        setRendForm]        = useState({ fecha:today(), monto:"", cuentaId:"", nota:"Rendimiento NU" });
 
   // ── Años disponibles derivados de los datos ───────────────────────────────
   const anosDisponibles = useMemo(() => {
@@ -633,14 +634,15 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
                 <div style={{ fontSize:12, color:C.ink4 }}>Total retirado: <strong style={{ color:C.negative }}>{money(distribucion.totalRetiros)}</strong></div>
               </div>
               {!showRetiroForm && (
-                <button onClick={() => setShowRetiroForm(true)}
+                <button onClick={() => { setEditingRetiroId(null); setRetiroForm({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" }); setShowRetiroForm(true); }}
                   style={{ border:`1px solid ${C.negative}`, background:"white", color:C.negative, borderRadius:8, padding:"6px 12px", fontWeight:700, fontSize:12, cursor:"pointer" }}>
                   + Nuevo retiro
                 </button>
               )}
             </div>
             {showRetiroForm && (
-              <div style={{ border:`1px solid ${C.border2}`, borderRadius:10, padding:12, display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
+              <div style={{ border:`1px solid ${editingRetiroId ? "#ffd54f" : C.border2}`, background: editingRetiroId ? "#fff8e1" : "white", borderRadius:10, padding:12, display:"flex", flexDirection:"column", gap:8, marginBottom:10 }}>
+                {editingRetiroId && <div style={{ fontSize:12, fontWeight:700, color:"#92400e" }}>✎ Editando retiro</div>}
                 <div style={{ display:"flex", gap:8 }}>
                   <input type="date" value={retiroForm.fecha} onChange={(e) => setRetiroForm({ ...retiroForm, fecha:e.target.value })}
                     style={{ ...dInpSt, flex:1 }} />
@@ -662,13 +664,18 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
                   <button onClick={() => {
                     const monto = Number(retiroForm.monto || 0);
                     if (!monto) return;
-                    onRetiro?.({ fecha:retiroForm.fecha, socio:retiroForm.socio, monto, cuentaId:retiroForm.cuentaId||null, nota:retiroForm.nota });
+                    if (editingRetiroId) {
+                      onEditarRetiro?.({ id:editingRetiroId, fecha:retiroForm.fecha, socio:retiroForm.socio, monto, cuentaId:retiroForm.cuentaId||null, nota:retiroForm.nota });
+                    } else {
+                      onRetiro?.({ fecha:retiroForm.fecha, socio:retiroForm.socio, monto, cuentaId:retiroForm.cuentaId||null, nota:retiroForm.nota });
+                    }
                     setRetiroForm({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" });
+                    setEditingRetiroId(null);
                     setShowRetiroForm(false);
                   }} style={{ flex:1, background:C.negative, color:"white", border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
-                    Registrar retiro
+                    {editingRetiroId ? "✓ Guardar cambios" : "Registrar retiro"}
                   </button>
-                  <button onClick={() => setShowRetiroForm(false)}
+                  <button onClick={() => { setShowRetiroForm(false); setEditingRetiroId(null); setRetiroForm({ fecha:today(), socio:"", monto:"", cuentaId:"", nota:"" }); }}
                     style={{ flex:1, background:"#f5f5f5", color:C.ink3, border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
                     Cancelar
                   </button>
@@ -677,10 +684,27 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
             )}
             {retiros.length > 0 ? (
               <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                {[...retiros].sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,5).map((r) => (
-                  <div key={r.id} style={{ display:"flex", justifyContent:"space-between", padding:"7px 10px", background:C.negBg, borderRadius:8, fontSize:13 }}>
-                    <span style={{ color:C.ink3 }}>{r.fecha}{r.socio ? ` · ${r.socio}` : ""}{r.nota ? ` · ${r.nota}` : ""}</span>
-                    <span style={{ fontWeight:700, color:C.negative }}>{money(r.monto)}</span>
+                {[...retiros].sort((a,b)=>b.fecha.localeCompare(a.fecha)).map((r) => (
+                  <div key={r.id} className="tr-hover" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 10px",
+                    background: editingRetiroId === r.id ? "#fff8e1" : C.negBg,
+                    border: editingRetiroId === r.id ? "1px solid #ffd54f" : "1px solid transparent",
+                    borderRadius:8, fontSize:13 }}>
+                    <span style={{ color:C.ink3 }}>
+                      {r.fecha}{r.socio ? ` · ${r.socio}` : ""}{r.nota ? ` · ${r.nota}` : ""}
+                      {r.cuentaId && <span style={{ marginLeft:4, fontSize:11, color:C.ink4 }}>({cuentas.find((c)=>c.id===r.cuentaId)?.nombre})</span>}
+                    </span>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontWeight:700, color:C.negative }}>{money(r.monto)}</span>
+                      <div className="row-actions" style={{ display:"flex", gap:4 }}>
+                        <button title="Editar" onClick={() => {
+                          setEditingRetiroId(r.id);
+                          setRetiroForm({ fecha:r.fecha, socio:r.socio||"", monto:String(r.monto), cuentaId:r.cuentaId||"", nota:r.nota||"" });
+                          setShowRetiroForm(true);
+                        }} style={{ border:"none", background:"#dbeafe", color:"#1d4ed8", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11 }}>✎</button>
+                        <button title="Eliminar" onClick={() => { if (window.confirm("¿Eliminar este retiro?")) onEliminarRetiro?.(r.id); }}
+                          style={{ border:"none", background:"#fee2e2", color:"#dc2626", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11 }}>🗑</button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

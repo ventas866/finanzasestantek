@@ -333,6 +333,16 @@ export default function App() {
     dbSave("retiros", record);
   }
 
+  function editarRetiro(updated) {
+    setRetiros((p) => p.map((r) => r.id === updated.id ? updated : r));
+    dbSave("retiros", updated);
+  }
+
+  function eliminarRetiro(id) {
+    setRetiros((p) => p.filter((r) => r.id !== id));
+    dbDelete("retiros", id);
+  }
+
   // ── Rendimientos financieros ──────────────────────────────────────────────
   function registrarRendimiento(rend) {
     const record = { id: uid(), ...rend };
@@ -590,7 +600,7 @@ export default function App() {
         </header>
 
         <main style={pageContent} className="page-content-inner">
-          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} cuentas={cuentas} retiros={retiros} rendimientos={rendimientos} onRetiro={registrarRetiro} onRendimiento={registrarRendimiento} />}
+          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} cuentas={cuentas} retiros={retiros} rendimientos={rendimientos} onRetiro={registrarRetiro} onEditarRetiro={editarRetiro} onEliminarRetiro={eliminarRetiro} onRendimiento={registrarRendimiento} />}
           {pagina==="Inventario"   && (
             <Inventario
               catalogo={catalogo}

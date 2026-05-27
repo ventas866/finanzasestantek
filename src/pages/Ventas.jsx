@@ -38,10 +38,14 @@ export default function Ventas({
   pagoLinea, setPagoLinea,
   onSave, onEdit, onDelete, onCancel,
   onPagarProveedorReventa,
+  onEditarPagoProvReventa,
+  onEliminarPagoProvReventa,
+  onEliminarAbono,
   onSaveProducto,
 }) {
-  const [pagoProvOpen, setPagoProvOpen] = useState(null);
-  const [pagoProvForm, setPagoProvForm] = useState({ fecha: today(), monto:"", cuentaId:"", nota:"", proveedor:"" });
+  const [pagoProvOpen,     setPagoProvOpen]     = useState(null); // ventaId abierto
+  const [pagoProvForm,     setPagoProvForm]     = useState({ fecha: today(), monto:"", cuentaId:"", nota:"", proveedor:"" });
+  const [editingPagoId,    setEditingPagoId]    = useState(null); // pagoId que se edita
   const [search,    setSearch]    = useState("");
   const [filtOrigen,setFiltOrigen]= useState("todos");
   const [filtPer,   setFiltPer]   = useState("todos");
@@ -559,9 +563,15 @@ export default function Ventas({
                         {(item.abonos || []).length > 0 && (
                           <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:3 }}>
                             {item.abonos.map((ab) => (
-                              <div key={ab.id} style={{ fontSize:12, color:"#64748b" }}>
-                                ✓ Abono {ab.fecha}: {money(ab.valor)}
-                                {ab.cuentaId && ` → ${cuentas.find((c) => c.id === ab.cuentaId)?.nombre}`}
+                              <div key={ab.id} style={{ fontSize:12, color:"#64748b", display:"flex", alignItems:"center", gap:6 }}>
+                                <span style={{ flex:1 }}>
+                                  ✓ Abono {ab.fecha}: <strong>{money(ab.valor)}</strong>
+                                  {ab.cuentaId && ` → ${cuentas.find((c) => c.id === ab.cuentaId)?.nombre}`}
+                                </span>
+                                <button onClick={() => { if (window.confirm("¿Eliminar este abono?")) onEliminarAbono?.(item.id, ab.id); }}
+                                  style={{ border:"none", background:"#fee2e2", color:"#dc2626", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11, flexShrink:0 }}>
+                                  ✕
+                                </button>
                               </div>
                             ))}
                           </div>
@@ -597,29 +607,50 @@ export default function Ventas({
                         venta={item}
                         cuentas={cuentas}
                         isOpen={pagoProvOpen === item.id}
+                        editingPagoId={pagoProvOpen === item.id ? editingPagoId : null}
                         form={pagoProvForm}
                         onOpen={() => {
                           const pagadoProv = (item.pagosProvReventa||[]).reduce((a,p)=>a+p.monto,0);
                           const pendienteProv = Math.max(0, item.costoReventa - pagadoProv);
+                          setEditingPagoId(null);
                           setPagoProvOpen(item.id);
                           setPagoProvForm({ fecha:today(), monto:pendienteProv.toString(), cuentaId:"", nota:"", proveedor:"" });
                         }}
-                        onClose={() => setPagoProvOpen(null)}
+                        onClose={() => { setPagoProvOpen(null); setEditingPagoId(null); }}
                         onFormChange={(f) => setPagoProvForm(f)}
                         onGuardar={() => {
                           const monto = Number(pagoProvForm.monto||0);
                           if (monto <= 0) return;
-                          // Reset PRIMERO para evitar crash de DOM al actualizar ventas
-                          setPagoProvOpen(null);
-                          setPagoProvForm({ fecha:today(), monto:"", cuentaId:"", nota:"", proveedor:"" });
-                          onPagarProveedorReventa(item.id, {
-                            fecha: pagoProvForm.fecha,
-                            monto,
+                          const ventaId = item.id;
+                          const pagoData = {
+                            fecha: pagoProvForm.fecha, monto,
                             cuentaId: pagoProvForm.cuentaId || null,
                             nota: pagoProvForm.nota,
                             proveedor: pagoProvForm.proveedor || null,
+                          };
+                          // Reset primero para evitar crash de DOM
+                          const editId = editingPagoId;
+                          setPagoProvOpen(null);
+                          setEditingPagoId(null);
+                          setPagoProvForm({ fecha:today(), monto:"", cuentaId:"", nota:"", proveedor:"" });
+                          if (editId) {
+                            onEditarPagoProvReventa?.(ventaId, editId, pagoData);
+                          } else {
+                            onPagarProveedorReventa(ventaId, pagoData);
+                          }
+                        }}
+                        onEditarPago={(pago) => {
+                          setEditingPagoId(pago.id);
+                          setPagoProvOpen(item.id);
+                          setPagoProvForm({
+                            fecha: pago.fecha || today(),
+                            monto: pago.monto?.toString() || "",
+                            cuentaId: pago.cuentaId || "",
+                            nota: pago.nota || "",
+                            proveedor: pago.proveedor || "",
                           });
                         }}
+                        onEliminarPago={(pagoId) => onEliminarPagoProvReventa?.(item.id, pagoId)}
                       />
                     )}
 
@@ -721,7 +752,7 @@ function ReventaStatus({ costoReventa, pagosProvReventa }) {
 
 // ─── Sub-componente: formulario pago proveedor reventa ────────────────────────
 // Componente propio = React puede hacer reconciliación estable (sin IIFE)
-function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onFormChange, onGuardar }) {
+function PagoProvReventa({ venta, cuentas, isOpen, editingPagoId, form, onOpen, onClose, onFormChange, onGuardar, onEditarPago, onEliminarPago }) {
   const pagadoProv    = (venta.pagosProvReventa||[]).reduce((a,p) => a + p.monto, 0);
   const pendienteProv = Math.max(0, venta.costoReventa - pagadoProv);
   const pagoPct       = venta.costoReventa > 0 ? Math.min(100, (pagadoProv / venta.costoReventa) * 100) : 100;
@@ -743,32 +774,48 @@ function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onForm
 
       {/* Pagos realizados */}
       {(venta.pagosProvReventa||[]).length > 0 && (
-        <div style={{ display:"flex", flexDirection:"column", gap:3, marginBottom:8 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:8 }}>
           {venta.pagosProvReventa.map((p) => (
-            <div key={p.id} style={{ fontSize:11, color:"#92400e", display:"flex", gap:6 }}>
-              <span>✓</span>
-              <span>
-                {p.fecha}: {money(p.monto)}
+            <div key={p.id} style={{ fontSize:11, color:"#92400e", display:"flex", alignItems:"center", gap:6,
+              background: editingPagoId === p.id ? "#fff8e1" : "transparent",
+              borderRadius:6, padding: editingPagoId === p.id ? "3px 6px" : "1px 2px",
+              border: editingPagoId === p.id ? "1px solid #ffd54f" : "none" }}>
+              <span style={{ flexShrink:0 }}>✓</span>
+              <span style={{ flex:1 }}>
+                {p.fecha}: <strong>{money(p.monto)}</strong>
                 {p.proveedor ? ` [${p.proveedor}]` : ""}
                 {p.cuentaId ? ` → ${cuentas.find(c=>c.id===p.cuentaId)?.nombre||"?"}` : ""}
                 {p.nota ? ` · ${p.nota}` : ""}
               </span>
+              <button onClick={() => onEditarPago?.(p)}
+                title="Editar"
+                style={{ border:"none", background:"#dbeafe", color:"#1d4ed8", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11, flexShrink:0 }}>
+                ✎
+              </button>
+              <button onClick={() => { if (window.confirm("¿Eliminar este pago?")) onEliminarPago?.(p.id); }}
+                title="Eliminar"
+                style={{ border:"none", background:"#fee2e2", color:"#dc2626", borderRadius:5, padding:"2px 7px", cursor:"pointer", fontWeight:700, fontSize:11, flexShrink:0 }}>
+                ✕
+              </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Botón / Formulario */}
-      {pendienteProv > 0 && !isOpen && (
+      {/* Botón nuevo pago (siempre visible si no hay form abierto) */}
+      {!isOpen && (
         <button
           style={{ fontSize:12, fontWeight:700, background:"#fef3c7", color:"#92400e", border:"1px solid #fde68a", borderRadius:7, padding:"5px 12px", cursor:"pointer" }}
           onClick={onOpen}>
-          + Registrar pago al proveedor
+          + {pendienteProv > 0 ? "Registrar pago al proveedor" : "Agregar pago / corrección"}
         </button>
       )}
 
-      {pendienteProv > 0 && isOpen && (
-        <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:10 }}>
+      {isOpen && (
+        <div style={{ background: editingPagoId ? "#fff8e1" : "#fffbeb", border:`1px solid ${editingPagoId?"#ffd54f":"#fde68a"}`, borderRadius:10, padding:"12px 14px", display:"flex", flexDirection:"column", gap:10 }}>
+          {editingPagoId && (
+            <div style={{ fontSize:12, fontWeight:700, color:"#92400e" }}>✎ Editando pago existente</div>
+          )}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
             <div>
               <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Fecha</div>
@@ -803,7 +850,7 @@ function PagoProvReventa({ venta, cuentas, isOpen, form, onOpen, onClose, onForm
             <button
               style={{ flex:1, background:"#92400e", color:"white", border:"none", borderRadius:8, padding:"9px 14px", fontWeight:700, fontSize:13, cursor:"pointer" }}
               onClick={onGuardar}>
-              ✓ Guardar pago
+              {editingPagoId ? "✓ Guardar cambios" : "✓ Guardar pago"}
             </button>
             <button
               style={{ background:"#F5F5F5", color:"#616161", border:"none", borderRadius:8, padding:"9px 12px", fontWeight:600, fontSize:13, cursor:"pointer" }}

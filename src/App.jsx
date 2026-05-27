@@ -448,8 +448,34 @@ export default function App() {
       });
       return next;
     });
-    // dbSave usa la referencia capturada, no un side-effect dentro del updater
     setTimeout(() => { if (ventaActualizada) dbSave("ventas", ventaActualizada); }, 0);
+  }
+
+  function editarPagoProvReventa(ventaId, pagoId, updatedPago) {
+    setVentas((prev) => prev.map((v) => {
+      if (v.id !== ventaId) return v;
+      const next = { ...v, pagosProvReventa: (v.pagosProvReventa||[]).map((p) => p.id === pagoId ? { ...p, ...updatedPago } : p) };
+      dbSave("ventas", next);
+      return next;
+    }));
+  }
+
+  function eliminarPagoProvReventa(ventaId, pagoId) {
+    setVentas((prev) => prev.map((v) => {
+      if (v.id !== ventaId) return v;
+      const next = { ...v, pagosProvReventa: (v.pagosProvReventa||[]).filter((p) => p.id !== pagoId) };
+      dbSave("ventas", next);
+      return next;
+    }));
+  }
+
+  function eliminarAbono(ventaId, abonoId) {
+    setVentas((prev) => prev.map((v) => {
+      if (v.id !== ventaId) return v;
+      const next = { ...v, abonos: (v.abonos||[]).filter((a) => a.id !== abonoId) };
+      dbSave("ventas", next);
+      return next;
+    }));
   }
 
   // ── Loading / error screens ───────────────────────────────────────────────
@@ -605,6 +631,9 @@ export default function App() {
               pagoLinea={ventaPagoLinea} setPagoLinea={setVentaPagoLinea}
               onSave={guardarVenta} onEdit={editarVenta} onDelete={eliminarVenta} onCancel={limpiarVentaForm}
               onPagarProveedorReventa={pagarProveedorReventa}
+              onEditarPagoProvReventa={editarPagoProvReventa}
+              onEliminarPagoProvReventa={eliminarPagoProvReventa}
+              onEliminarAbono={eliminarAbono}
               onSaveProducto={guardarProductoExtra}
             />
           )}

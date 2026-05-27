@@ -49,7 +49,11 @@ export async function saveRecord(table, record) {
   // Fallback: la tabla puede no tener columna "fecha"
   console.warn(`saveRecord(${table}) con fecha falló (${error.message}), reintentando sin fecha...`);
   const { error: e2 } = await supabase.from(table).upsert({ id: record.id, data: record });
-  if (e2) console.error(`saveRecord(${table}):`, e2);
+  if (e2) {
+    const msg = `No se pudo guardar en tabla "${table}": ${e2.message}`;
+    console.error(msg, e2);
+    throw new Error(msg);
+  }
 }
 
 export async function deleteRecord(table, id) {

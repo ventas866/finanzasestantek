@@ -327,20 +327,38 @@ export default function App() {
   }
 
   // ── Retiros de socios ─────────────────────────────────────────────────────
-  function registrarRetiro(retiro) {
+  async function registrarRetiro(retiro) {
     const record = { id: uid(), ...retiro };
     setRetiros((p) => [record, ...p]);
-    dbSave("retiros", record);
+    try {
+      await saveRecord("retiros", record);
+    } catch (e) {
+      // Revertir estado si Supabase falló
+      setRetiros((p) => p.filter((r) => r.id !== record.id));
+      alert(`⚠ Error al guardar retiro:\n${e.message}\n\nVerifica que la tabla "retiros" existe en Supabase con columnas: id (text PK), fecha (text), data (jsonb).`);
+    }
   }
 
-  function editarRetiro(updated) {
+  async function editarRetiro(updated) {
+    const anterior = retiros.find((r) => r.id === updated.id);
     setRetiros((p) => p.map((r) => r.id === updated.id ? updated : r));
-    dbSave("retiros", updated);
+    try {
+      await saveRecord("retiros", updated);
+    } catch (e) {
+      if (anterior) setRetiros((p) => p.map((r) => r.id === updated.id ? anterior : r));
+      alert(`⚠ Error al guardar retiro:\n${e.message}`);
+    }
   }
 
-  function eliminarRetiro(id) {
+  async function eliminarRetiro(id) {
+    const anterior = retiros.find((r) => r.id === id);
     setRetiros((p) => p.filter((r) => r.id !== id));
-    dbDelete("retiros", id);
+    try {
+      await deleteRecord("retiros", id);
+    } catch (e) {
+      if (anterior) setRetiros((p) => [anterior, ...p]);
+      alert(`⚠ Error al eliminar retiro:\n${e.message}`);
+    }
   }
 
   // ── Rendimientos financieros ──────────────────────────────────────────────

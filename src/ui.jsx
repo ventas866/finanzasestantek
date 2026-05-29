@@ -251,8 +251,8 @@ export function CategoriaBadge({ cat }) {
 export function StockBadge({ stock, tipo }) {
   if (tipo === "Servicio")    return <span style={{ ...s.badge, background: "#E8F5E9", color: C.positive }}>Servicio</span>;
   if (tipo === "Bajo pedido") return <span style={{ ...s.badge, background: "#F3E8FF", color: "#6B21A8" }}>Bajo pedido</span>;
-  if (stock === 0)            return <span style={{ ...s.badge, background: C.negativeBg, color: C.negative }}>Agotado</span>;
-  if (stock <= 2)             return <span style={{ ...s.badge, background: "#FFF3E0", color: C.brand }}>Crítico · {stock}</span>;
+  if (stock === 0 || stock == null) return <span style={{ ...s.badge, background: "#F5F5F5", color: "#9E9E9E" }}>0</span>;
+  if (stock < 0)  return <span style={{ ...s.badge, background: C.negativeBg, color: C.negative }}>{stock} und</span>;
   return <span style={{ ...s.badge, background: C.positiveBg, color: C.positive }}>{stock} und</span>;
 }
 

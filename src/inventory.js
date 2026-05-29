@@ -35,12 +35,14 @@ export function buildInventory(
       if (linea.esLote) continue;
       const actual = map.get(linea.sku);
       if (!actual) continue;
-      const cantNueva = Number(linea.cantidad || 0);
+      const cantNueva  = Number(linea.cantidad || 0);
       const costoNuevo = Number(linea.costoUnitario || 0);
       const nuevoStock = actual.stock + cantNueva;
-      const nuevoCosto = nuevoStock > 0
+      // Si stock previo era ≤ 0 (vendido antes de comprar), el costo es el nuevo precio
+      // Si ambos positivos, promedio ponderado
+      const nuevoCosto = (actual.stock > 0 && nuevoStock > 0)
         ? round2((actual.stock * actual.costo + cantNueva * costoNuevo) / nuevoStock)
-        : actual.costo;
+        : (costoNuevo || actual.costo);
       map.set(linea.sku, { ...actual, stock: nuevoStock, costo: nuevoCosto });
     }
   }
@@ -66,12 +68,14 @@ export function buildInventory(
     for (const pieza of conv.piezas || []) {
       const actual = map.get(pieza.sku);
       if (!actual) continue;
-      const cantNueva = Number(pieza.cantidad || 0);
+      const cantNueva  = Number(pieza.cantidad || 0);
       const costoNuevo = Number(pieza.costoUnitario || 0);
       const nuevoStock = actual.stock + cantNueva;
-      const nuevoCosto = nuevoStock > 0
+      // Si stock previo era ≤ 0, el costo es el de la conversión (no promediar con 0 o negativo)
+      // Si ambos positivos, promedio ponderado real
+      const nuevoCosto = (actual.stock > 0 && nuevoStock > 0)
         ? round2((actual.stock * actual.costo + cantNueva * costoNuevo) / nuevoStock)
-        : actual.costo;
+        : (costoNuevo || actual.costo);
       map.set(pieza.sku, { ...actual, stock: nuevoStock, costo: nuevoCosto });
     }
   }

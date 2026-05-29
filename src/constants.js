@@ -17,7 +17,7 @@ export const CATALOGO_BASE = [
     [40, 50, 60, 80].map((prof) => ({
       id: `GALV-${largo}-${prof}`, sku: `GALV-${largo}-${prof}`,
       nombre: `Entrepaño galvanizado ${formatMeters(largo)} x ${formatMeters(prof)}`,
-      categoria: "Galvanizado", tipo: "Reventa", unidad: "und", costoBase: 0,
+      categoria: "Galvanizado", tipo: "Inventario propio", unidad: "und", costoBase: 0,
     }))
   ),
   ...[150, 200, 240, 280, 300].flatMap((largo) =>

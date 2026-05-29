@@ -74,8 +74,9 @@ export default function App() {
   const [transferencias, setTransferencias] = useState([]);
   const [ajustes,        setAjustes]        = useState([]);
   const [conversiones,   setConversiones]   = useState([]);
-  const [retiros,        setRetiros]        = useState([]);
-  const [rendimientos,   setRendimientos]   = useState([]);
+  const [retiros,             setRetiros]             = useState([]);
+  const [rendimientos,        setRendimientos]        = useState([]);
+  const [transformacionesInv, setTransformacionesInv] = useState([]);
   const [categoriasGasto, setCategoriasGasto] = useState(() => {
     try { return JSON.parse(localStorage.getItem("estantek_cat_gasto") || "[]"); }
     catch { return []; }
@@ -117,8 +118,8 @@ export default function App() {
   );
 
   const catalogo = useMemo(
-    () => buildInventory(catalogoCompleto, compras, ventas, ajustes, conversiones, precios),
-    [catalogoCompleto, compras, ventas, ajustes, conversiones, precios]
+    () => buildInventory(catalogoCompleto, compras, ventas, ajustes, conversiones, precios, transformacionesInv),
+    [catalogoCompleto, compras, ventas, ajustes, conversiones, precios, transformacionesInv]
   );
 
   // ── Carga inicial ─────────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ export default function App() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [c, v, g, i, cu, tr, aj, co, prods, precs, ret, rend] = await Promise.all([
+        const [c, v, g, i, cu, tr, aj, co, prods, precs, ret, rend, tInv] = await Promise.all([
           fetchTable("compras"),
           fetchTable("ventas"),
           fetchTable("gastos"),
@@ -140,10 +141,12 @@ export default function App() {
           fetchPrecios(),
           fetchTable("retiros"),
           fetchTable("rendimientos"),
+          fetchTable("transformaciones_inv"),
         ]);
         setCompras(c); setVentas(v); setGastos(g); setInversiones(i);
         setTransferencias(tr); setAjustes(aj); setConversiones(co);
         setRetiros(ret || []); setRendimientos(rend || []);
+        setTransformacionesInv(tInv || []);
         setProductosExtra(prods);
         setPrecios(precs);
         if (cu.length > 0) setCuentas(mergeCuentas(cu));
@@ -426,6 +429,23 @@ export default function App() {
     dbDelete("conversiones", id);
   }
 
+  // ── Transformaciones de inventario ────────────────────────────────────────
+  function guardarTransformacionInv(transf) {
+    if (transf.id) {
+      setTransformacionesInv((p) => p.map((t) => t.id === transf.id ? transf : t));
+      dbSave("transformaciones_inv", transf);
+    } else {
+      const record = { id: uid(), ...transf };
+      setTransformacionesInv((p) => [record, ...p]);
+      dbSave("transformaciones_inv", record);
+    }
+  }
+
+  function eliminarTransformacionInv(id) {
+    setTransformacionesInv((p) => p.filter((t) => t.id !== id));
+    dbDelete("transformaciones_inv", id);
+  }
+
   function guardarProductoExtra(prod) {
     setProductosExtra((p)=>[...p, prod]);
     saveProducto(prod);
@@ -626,11 +646,14 @@ export default function App() {
               ventas={ventas}
               ajustes={ajustes}
               conversiones={conversiones}
+              transformacionesInv={transformacionesInv}
               productosExtra={productosExtra}
               onAjuste={guardarAjuste}
               onDeleteAjuste={eliminarAjuste}
               onConversion={guardarConversion}
               onDeleteConversion={eliminarConversion}
+              onTransformacion={guardarTransformacionInv}
+              onDeleteTransformacion={eliminarTransformacionInv}
               onSaveProducto={guardarProductoExtra}
               onDeleteProducto={eliminarProductoExtra}
               onUpdatePrecio={actualizarPrecio}

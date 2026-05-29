@@ -6,7 +6,7 @@ import {
 } from "../ui.jsx";
 
 /** Calcula los movimientos que afectan el stock de un SKU */
-function getMovimientos(sku, compras, ventas, conversiones, ajustes) {
+function getMovimientos(sku, compras, ventas, conversiones, ajustes, transformacionesInv = []) {
   const movs = [];
   // Compras
   for (const c of compras) {
@@ -33,6 +33,17 @@ function getMovimientos(sku, compras, ventas, conversiones, ajustes) {
       }
     }
   }
+  // Transformaciones
+  for (const transf of transformacionesInv) {
+    if (transf.origen?.sku === sku) {
+      movs.push({ tipo:"transformacion", fecha:transf.fecha, ref:transf.descripcion || "Transformación", cantidad:+transf.origen.cantidad, signo:-1 });
+    }
+    for (const sal of transf.salidas || []) {
+      if (sal.sku === sku) {
+        movs.push({ tipo:"transformacion", fecha:transf.fecha, ref:transf.descripcion || "Transformación", cantidad:+sal.cantidad, signo:1 });
+      }
+    }
+  }
   // Ajustes
   for (const aj of ajustes) {
     if (aj.sku === sku) {
@@ -48,11 +59,14 @@ export default function Inventario({
   ventas  = [],
   ajustes = [],
   conversiones = [],
+  transformacionesInv = [],
   productosExtra = [],
   onAjuste,
   onDeleteAjuste,
   onConversion,
   onDeleteConversion,
+  onTransformacion,
+  onDeleteTransformacion,
   onSaveProducto,
   onDeleteProducto,
   onUpdatePrecio,
@@ -245,6 +259,79 @@ export default function Inventario({
     setEditingConvId(null);
   }
 
+  // ── Tab: Transformaciones ────────────────────────────────────────────────
+  const TRANSF_FORM_INIT = { fecha: today(), descripcion: "", origenSku: "", origenCantidad: "" };
+  const [transfForm,      setTransfForm]      = useState(TRANSF_FORM_INIT);
+  const [transfSalidas,   setTransfSalidas]   = useState([]); // [{ id, sku, cantidad, costoUnitario }]
+  const [transfLinea,     setTransfLinea]     = useState({ sku: "", cantidad: "", costoUnitario: "" });
+  const [editingTransfId, setEditingTransfId] = useState(null);
+
+  const origenItem      = catalogo.find((i) => i.sku === transfForm.origenSku);
+  const costoOrigenTotal = Number(transfForm.origenCantidad || 0) * (origenItem?.costo || 0);
+  const costoAsignadoTr  = transfSalidas.reduce((a, s) => a + s.cantidad * s.costoUnitario, 0);
+  const costoRestanteTr  = costoOrigenTotal - costoAsignadoTr;
+  // Costo sugerido para la linea nueva (costo restante / cantidad que se va a agregar)
+  const costoSugeridoTr  = Number(transfLinea.cantidad) > 0
+    ? Math.round(costoRestanteTr / Number(transfLinea.cantidad))
+    : null;
+
+  const productosTransformables = catalogo.filter((i) => i.tipo !== "Servicio" && i.tipo !== "Bajo pedido");
+
+  function agregarSalidaTransf() {
+    const sku   = transfLinea.sku;
+    const cant  = Number(transfLinea.cantidad || 0);
+    const costo = Number(transfLinea.costoUnitario || 0);
+    if (!sku || cant <= 0) return;
+    const info = catalogo.find((i) => i.sku === sku);
+    setTransfSalidas((prev) => [...prev, {
+      id: uid(), sku,
+      producto: info?.nombre || sku,
+      cantidad: cant, costoUnitario: costo,
+    }]);
+    setTransfLinea({ sku: "", cantidad: "", costoUnitario: "" });
+  }
+
+  function guardarTransformacion() {
+    if (!transfForm.origenSku || !Number(transfForm.origenCantidad) || transfSalidas.length === 0) return;
+    const record = {
+      ...(editingTransfId ? { id: editingTransfId } : {}),
+      fecha: transfForm.fecha,
+      descripcion: transfForm.descripcion,
+      origen: {
+        sku: transfForm.origenSku,
+        cantidad: Number(transfForm.origenCantidad),
+        costoUnitario: origenItem?.costo || 0,
+        costoTotal: costoOrigenTotal,
+      },
+      salidas: transfSalidas,
+    };
+    onTransformacion(record);
+    setTransfForm(TRANSF_FORM_INIT);
+    setTransfSalidas([]);
+    setTransfLinea({ sku: "", cantidad: "", costoUnitario: "" });
+    setEditingTransfId(null);
+  }
+
+  function editarTransformacion(transf) {
+    setTransfForm({
+      fecha: transf.fecha,
+      descripcion: transf.descripcion || "",
+      origenSku: transf.origen?.sku || "",
+      origenCantidad: transf.origen?.cantidad?.toString() || "",
+    });
+    setTransfSalidas(transf.salidas || []);
+    setEditingTransfId(transf.id);
+    setTab("transformaciones");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarTransformacion() {
+    setTransfForm(TRANSF_FORM_INIT);
+    setTransfSalidas([]);
+    setTransfLinea({ sku: "", cantidad: "", costoUnitario: "" });
+    setEditingTransfId(null);
+  }
+
   // ── Tab 4: Productos extra ───────────────────────────────────────────────
   const CATEGORIAS_EXTRA = ["Viga","Marco","Galvanizado","Madera económica","Madera premium","Pesada","Servicio","Otro"];
   const TIPOS_EXTRA      = ["Inventario propio","Reventa","Bajo pedido","Servicio"];
@@ -297,10 +384,11 @@ export default function Inventario({
       {/* Tabs */}
       <div style={{ display:"flex", gap:0, borderBottom:"2px solid #e2e8f0", flexWrap:"wrap" }}>
         {[
-          ["catalogo",    "📦 Catálogo"],
-          ["ajustes",     "✏️ Ajustes de stock"],
-          ["conversiones","🪵 Conversión de lotes"],
-          ["productos",   "➕ Agregar producto"],
+          ["catalogo",          "📦 Catálogo"],
+          ["ajustes",           "✏️ Ajustes de stock"],
+          ["conversiones",      "🪵 Conversión de lotes"],
+          ["transformaciones",  "🔄 Transformaciones"],
+          ["productos",         "➕ Agregar producto"],
         ].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ border:"none", background:"transparent", padding:"10px 20px", fontWeight:700, fontSize:13, cursor:"pointer",
@@ -393,7 +481,7 @@ export default function Inventario({
                         </tr>
                         {catItems.map((item, idx) => (
                           <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}), ...(openMovSku === item.sku ? { background:"#eff6ff" } : {}) }}>
-                            {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, openMovSku === item.sku ? getMovimientos(item.sku, compras, ventas, conversiones, ajustes) : null)}
+                            {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, openMovSku === item.sku ? getMovimientos(item.sku, compras, ventas, conversiones, ajustes, transformacionesInv) : null)}
                           </tr>
                         ))}
                       </Fragment>
@@ -401,7 +489,7 @@ export default function Inventario({
                     /* ── Vista plana (categoría específica) ─────────────── */
                     : filtrado.map((item, idx) => (
                       <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}), ...(openMovSku === item.sku ? { background:"#eff6ff" } : {}) }}>
-                        {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, openMovSku === item.sku ? getMovimientos(item.sku, compras, ventas, conversiones, ajustes) : null)}
+                        {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, openMovSku === item.sku ? getMovimientos(item.sku, compras, ventas, conversiones, ajustes, transformacionesInv) : null)}
                       </tr>
                     ))
                   }
@@ -836,6 +924,239 @@ export default function Inventario({
         </div>
       )}
 
+      {/* ── Tab: Transformaciones ── */}
+      {tab === "transformaciones" && (
+        <div className="pg-320">
+          {/* ── Formulario ── */}
+          <Panel title={editingTransfId ? "✎ Editar transformación" : "🔄 Nueva transformación de producto"}>
+            {editingTransfId && (
+              <div style={{ background:"#fff8e1", border:"1px solid #ffd54f", borderRadius:8, padding:"8px 12px", fontSize:13, color:"#795548", marginBottom:12, fontWeight:600 }}>
+                ✎ Editando transformación registrada
+              </div>
+            )}
+            <p style={{ fontSize:13, color:"#64748b", margin:"0 0 16px" }}>
+              Convierte un producto terminado en otro u otros. El costo del producto origen se redistribuye proporcionalmente entre los productos resultantes.
+            </p>
+
+            <FormGrid>
+              <Field label="Fecha">
+                <input type="date" style={inputStyle} value={transfForm.fecha}
+                  onChange={(e) => setTransfForm({ ...transfForm, fecha: e.target.value })} />
+              </Field>
+              <Field label="Descripción" hint="Opcional — ej: Galvanizado 2.4m → 2m" wide>
+                <input style={inputStyle} placeholder="Ej: Corte galvanizado 2.40m a 2m" value={transfForm.descripcion}
+                  onChange={(e) => setTransfForm({ ...transfForm, descripcion: e.target.value })} />
+              </Field>
+            </FormGrid>
+
+            {/* Producto origen */}
+            <div style={{ border:"1.5px solid #e2e8f0", borderRadius:10, padding:14, marginTop:8 }}>
+              <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:10 }}>📤 Producto origen (el que vas a transformar)</div>
+              <FormGrid>
+                <Field label="Producto" wide>
+                  <select style={selectStyle} value={transfForm.origenSku}
+                    onChange={(e) => setTransfForm({ ...transfForm, origenSku: e.target.value, origenCantidad: "" })}>
+                    <option value="">— Selecciona el producto —</option>
+                    {productosTransformables.map((i) => (
+                      <option key={i.sku} value={i.sku}>
+                        {i.sku} · {i.nombre} · Stock: {i.stock} und · Costo: {i.costo > 0 ? `$${Math.round(i.costo).toLocaleString("es-CO")}` : "—"}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Cantidad a transformar" hint={origenItem ? `Stock disponible: ${origenItem.stock} und` : ""}>
+                  <input type="number" style={inputStyle} min="1"
+                    max={origenItem?.stock > 0 ? origenItem.stock : undefined}
+                    placeholder="Ej: 14"
+                    value={transfForm.origenCantidad}
+                    onChange={(e) => setTransfForm({ ...transfForm, origenCantidad: e.target.value })} />
+                </Field>
+              </FormGrid>
+
+              {/* Info del origen seleccionado */}
+              {origenItem && Number(transfForm.origenCantidad) > 0 && (
+                <div style={{ marginTop:10, background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#1e40af", display:"flex", gap:20, flexWrap:"wrap" }}>
+                  <span>Costo unitario origen: <strong>${Math.round(origenItem.costo).toLocaleString("es-CO")}</strong></span>
+                  <span>Cantidad: <strong>{transfForm.origenCantidad} und</strong></span>
+                  <span style={{ fontWeight:800 }}>💰 Costo total a redistribuir: <strong>${Math.round(costoOrigenTotal).toLocaleString("es-CO")}</strong></span>
+                </div>
+              )}
+            </div>
+
+            {/* Productos de salida */}
+            <div style={{ border:"1.5px solid #e2e8f0", borderRadius:10, padding:14, marginTop:12 }}>
+              <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:12 }}>📥 Productos resultantes</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                <div style={{ gridColumn:"1/-1" }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Producto resultante (SKU de salida)</div>
+                  <select style={selectStyle} value={transfLinea.sku}
+                    onChange={(e) => setTransfLinea({ ...transfLinea, sku: e.target.value })}>
+                    <option value="">— Selecciona el producto resultante —</option>
+                    {productosTransformables
+                      .filter((i) => i.sku !== transfForm.origenSku)
+                      .map((i) => (
+                        <option key={i.sku} value={i.sku}>{i.sku} · {i.nombre}</option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Cantidad resultante</div>
+                  <input type="number" style={inputStyle} placeholder="Ej: 16" value={transfLinea.cantidad}
+                    onChange={(e) => setTransfLinea({ ...transfLinea, cantidad: e.target.value })} />
+                </div>
+                <div>
+                  <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Costo unitario</div>
+                  <input type="number" style={inputStyle}
+                    placeholder={costoSugeridoTr !== null && costoSugeridoTr > 0 ? `Sugerido: ${costoSugeridoTr.toLocaleString("es-CO")}` : "0"}
+                    value={transfLinea.costoUnitario}
+                    onChange={(e) => setTransfLinea({ ...transfLinea, costoUnitario: e.target.value })} />
+                </div>
+              </div>
+
+              {/* Presupuesto costo */}
+              {costoOrigenTotal > 0 && (
+                <div style={{ fontSize:12, background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:8, padding:"8px 12px", color:"#15803d", display:"flex", gap:16, flexWrap:"wrap", marginBottom:10 }}>
+                  <span>Pool de costo: <strong>${Math.round(costoOrigenTotal).toLocaleString("es-CO")}</strong></span>
+                  {costoAsignadoTr > 0 && <span>Asignado: <strong>${Math.round(costoAsignadoTr).toLocaleString("es-CO")}</strong></span>}
+                  {costoOrigenTotal > 0 && (
+                    <span style={{ fontWeight:700, color: Math.abs(costoRestanteTr) < 1 ? "#15803d" : "#b45309" }}>
+                      Restante: ${Math.round(costoRestanteTr).toLocaleString("es-CO")}
+                    </span>
+                  )}
+                  {costoSugeridoTr !== null && Number(transfLinea.cantidad) > 0 && (
+                    <span style={{ color:"#0369a1" }}>
+                      💡 Sugerido para {transfLinea.cantidad} und: <strong>${costoSugeridoTr.toLocaleString("es-CO")}/und</strong>
+                      <button style={{ marginLeft:6, border:"none", background:"#bfdbfe", color:"#1e40af", borderRadius:4, padding:"1px 7px", cursor:"pointer", fontSize:11, fontWeight:700 }}
+                        onClick={() => setTransfLinea({ ...transfLinea, costoUnitario: costoSugeridoTr.toString() })}>
+                        Usar
+                      </button>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <button
+                style={{ ...pill,
+                  background: transfLinea.sku && Number(transfLinea.cantidad) > 0 ? "#0369a1" : "#e2e8f0",
+                  borderColor: transfLinea.sku && Number(transfLinea.cantidad) > 0 ? "#0369a1" : "#e2e8f0",
+                  color: transfLinea.sku && Number(transfLinea.cantidad) > 0 ? "white" : "#94a3b8" }}
+                onClick={agregarSalidaTransf}
+                disabled={!transfLinea.sku || Number(transfLinea.cantidad) <= 0}>
+                + Agregar producto resultante
+              </button>
+            </div>
+
+            {/* Lista de salidas agregadas */}
+            {transfSalidas.length > 0 && (
+              <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:10 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:".05em" }}>
+                  Productos resultantes registrados
+                </div>
+                {transfSalidas.map((s) => (
+                  <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, background:"#f0f9ff", borderRadius:8, padding:"10px 12px", border:"1px solid #bae6fd" }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, display:"flex", gap:8, alignItems:"center" }}>
+                        <span style={{ fontFamily:"monospace", fontSize:12, color:"#0369a1", background:"#e0f2fe", borderRadius:4, padding:"1px 6px" }}>{s.sku}</span>
+                        <span style={{ fontWeight:600 }}>{s.producto}</span>
+                      </div>
+                      <div style={{ fontSize:12, color:"#0369a1", marginTop:3 }}>
+                        ×{s.cantidad} und · ${Math.round(s.costoUnitario).toLocaleString("es-CO")}/und
+                      </div>
+                    </div>
+                    <div style={{ fontWeight:800, fontSize:14, color:"#0369a1", flexShrink:0 }}>
+                      ${Math.round(s.cantidad * s.costoUnitario).toLocaleString("es-CO")}
+                    </div>
+                    <button style={{ border:"none", background:"#fee2e2", color:"#dc2626", borderRadius:6, padding:"4px 8px", cursor:"pointer", fontWeight:700, fontSize:12, flexShrink:0 }}
+                      onClick={() => setTransfSalidas((p) => p.filter((x) => x.id !== s.id))}>✕</button>
+                  </div>
+                ))}
+                <div style={{ display:"flex", justifyContent:"flex-end", gap:16, paddingTop:6, borderTop:"1px solid #e2e8f0", fontSize:13 }}>
+                  <span style={{ color:"#64748b" }}>Total asignado:</span>
+                  <span style={{ fontWeight:800 }}>${Math.round(costoAsignadoTr).toLocaleString("es-CO")}</span>
+                  {Math.abs(costoRestanteTr) > 100 && (
+                    <span style={{ color:"#b45309", fontWeight:700 }}>
+                      ⚠ Difiere ${Math.round(Math.abs(costoRestanteTr)).toLocaleString("es-CO")} del origen
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:8 }}>
+              <DarkBtn
+                onClick={guardarTransformacion}
+                disabled={!transfForm.origenSku || !Number(transfForm.origenCantidad) || transfSalidas.length === 0}>
+                {editingTransfId ? "✓ Guardar cambios" : "✓ Registrar transformación"}
+              </DarkBtn>
+              {editingTransfId && (
+                <CancelBtn onClick={cancelarTransformacion}>Cancelar edición</CancelBtn>
+              )}
+            </div>
+          </Panel>
+
+          {/* ── Historial de transformaciones ── */}
+          <Panel title={`Transformaciones registradas (${transformacionesInv.length})`}>
+            {transformacionesInv.length === 0 ? (
+              <EmptyState icon="🔄" text="Sin transformaciones. Registra la primera para convertir un producto en otro y redistribuir el costo." />
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {[...transformacionesInv].sort((a, b) => b.fecha.localeCompare(a.fecha)).map((transf) => {
+                  const isEditingThis = editingTransfId === transf.id;
+                  const origenInfo    = catalogo.find((i) => i.sku === transf.origen?.sku);
+                  return (
+                    <div key={transf.id} style={{ background: isEditingThis ? "#fff8e1" : "#f8fafc", borderRadius:10,
+                           border: isEditingThis ? "1.5px solid #ffd54f" : "1px solid #e2e8f0", padding:"12px 14px" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:6 }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:700, fontSize:13 }}>{transf.descripcion || "Transformación de producto"}</div>
+                          <div style={{ fontSize:12, color:"#64748b", marginTop:4 }}>
+                            {transf.fecha} · Origen:
+                            <span style={{ marginLeft:6, fontFamily:"monospace", fontSize:11, background:"#fee2e2", color:"#dc2626", borderRadius:4, padding:"1px 6px", fontWeight:700 }}>
+                              {transf.origen?.sku}
+                            </span>
+                            <span style={{ marginLeft:6 }}>×{transf.origen?.cantidad} und</span>
+                            {transf.origen?.costoTotal > 0 && (
+                              <span style={{ marginLeft:6, color:"#92400e", fontWeight:600 }}>
+                                · ${Math.round(transf.origen.costoTotal).toLocaleString("es-CO")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                          <EditBtn onClick={() => editarTransformacion(transf)} />
+                          <DeleteBtn onClick={() => {
+                            if (window.confirm("¿Eliminar esta transformación? Los stocks se recalcularán.")) onDeleteTransformacion(transf.id);
+                          }} />
+                        </div>
+                      </div>
+                      {/* Flecha indicando los productos resultantes */}
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginTop:10, flexWrap:"wrap" }}>
+                        <span style={{ fontSize:12, color:"#94a3b8", marginTop:3 }}>→</span>
+                        <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+                          {(transf.salidas || []).map((s) => {
+                            const enCatalogo = catalogo.find((i) => i.sku === s.sku);
+                            return (
+                              <div key={s.id} style={{ fontSize:12, background: enCatalogo ? "#dbeafe" : "#fee2e2", color: enCatalogo ? "#1d4ed8" : "#dc2626", borderRadius:6, padding:"3px 10px", fontWeight:600 }}>
+                                {s.sku} ×{s.cantidad}
+                                {s.costoUnitario > 0 && (
+                                  <span style={{ marginLeft:4, opacity:.75, fontWeight:400 }}>
+                                    @${Math.round(s.costoUnitario).toLocaleString("es-CO")}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Panel>
+        </div>
+      )}
+
       {/* ── Tab 4: Agregar producto ── */}
       {tab === "productos" && (
         <div className="pg-320">
@@ -1030,8 +1351,8 @@ function InvKpi({ label, value, sub, color }) {
 // ─── Row renderer (shared between flat and grouped views) ─────────────────────
 function renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, movimientosData) {
   const isOpen = openMovSku === item.sku;
-  const TIPO_COLOR = { compra:"#059669", venta:"#dc2626", conversion:"#7c3aed", ajuste:"#d97706" };
-  const TIPO_LABEL = { compra:"Compra", venta:"Venta", conversion:"Conversión", ajuste:"Ajuste" };
+  const TIPO_COLOR = { compra:"#059669", venta:"#dc2626", conversion:"#7c3aed", ajuste:"#d97706", transformacion:"#0369a1" };
+  const TIPO_LABEL = { compra:"Compra", venta:"Venta", conversion:"Conversión", ajuste:"Ajuste", transformacion:"Transform." };
   return (
     <>
       <td style={tdStyle}>

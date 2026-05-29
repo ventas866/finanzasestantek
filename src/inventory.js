@@ -17,7 +17,8 @@ export function buildInventory(
   ventas,
   ajustes = [],
   conversiones = [],
-  precios = {}
+  precios = {},
+  transformacionesInv = []
 ) {
   const map = new Map(
     baseCatalogo.map((item) => {
@@ -77,6 +78,30 @@ export function buildInventory(
         ? round2((actual.stock * actual.costo + cantNueva * costoNuevo) / nuevoStock)
         : (costoNuevo || actual.costo);
       map.set(pieza.sku, { ...actual, stock: nuevoStock, costo: nuevoCosto });
+    }
+  }
+
+  // Transformaciones (terminado → terminado) — redistribuye costo entre productos
+  for (const transf of transformacionesInv) {
+    // 1. Reducir stock del producto origen
+    const origen = map.get(transf.origen?.sku);
+    if (origen) {
+      map.set(transf.origen.sku, {
+        ...origen,
+        stock: origen.stock - Number(transf.origen.cantidad || 0),
+      });
+    }
+    // 2. Aumentar stock de cada salida con su costo almacenado
+    for (const salida of transf.salidas || []) {
+      const actual = map.get(salida.sku);
+      if (!actual) continue;
+      const cantNueva  = Number(salida.cantidad || 0);
+      const costoNuevo = Number(salida.costoUnitario || 0);
+      const nuevoStock = actual.stock + cantNueva;
+      const nuevoCosto = (actual.stock > 0 && nuevoStock > 0)
+        ? round2((actual.stock * actual.costo + cantNueva * costoNuevo) / nuevoStock)
+        : (costoNuevo || actual.costo);
+      map.set(salida.sku, { ...actual, stock: nuevoStock, costo: nuevoCosto });
     }
   }
 

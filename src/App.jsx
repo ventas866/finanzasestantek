@@ -623,6 +623,7 @@ export default function App() {
             <Inventario
               catalogo={catalogo}
               compras={compras}
+              ventas={ventas}
               ajustes={ajustes}
               conversiones={conversiones}
               productosExtra={productosExtra}

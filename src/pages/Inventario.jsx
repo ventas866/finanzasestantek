@@ -5,9 +5,47 @@ import {
   Field, inputStyle, selectStyle, FormGrid, DarkBtn, DeleteBtn, EditBtn, CancelBtn,
 } from "../ui.jsx";
 
+/** Calcula los movimientos que afectan el stock de un SKU */
+function getMovimientos(sku, compras, ventas, conversiones, ajustes) {
+  const movs = [];
+  // Compras
+  for (const c of compras) {
+    for (const it of c.items || []) {
+      if (it.sku === sku && !it.esLote) {
+        movs.push({ tipo:"compra", fecha:c.fecha, ref:c.proveedor, cantidad:+it.cantidad, signo:1 });
+      }
+    }
+  }
+  // Ventas
+  for (const v of ventas) {
+    for (const it of v.items || []) {
+      if (it.sku !== sku) continue;
+      if (it.esReventa === true) continue;
+      if ((it.esReventa === undefined || it.esReventa === null) && v.origen !== "Inventario propio") continue;
+      movs.push({ tipo:"venta", fecha:v.fecha, ref:v.cliente, cantidad:+it.cantidad, signo:-1 });
+    }
+  }
+  // Conversiones
+  for (const conv of conversiones) {
+    for (const p of conv.piezas || []) {
+      if (p.sku === sku) {
+        movs.push({ tipo:"conversion", fecha:conv.fecha, ref:conv.descripcion || "Conversión lote", cantidad:+p.cantidad, signo:1 });
+      }
+    }
+  }
+  // Ajustes
+  for (const aj of ajustes) {
+    if (aj.sku === sku) {
+      movs.push({ tipo:"ajuste", fecha:aj.fecha, ref:aj.nota || "Ajuste manual", cantidad:+aj.cantidad, signo: aj.cantidad >= 0 ? 1 : -1 });
+    }
+  }
+  return movs.sort((a,b) => (a.fecha||"").localeCompare(b.fecha||""));
+}
+
 export default function Inventario({
   catalogo,
   compras = [],
+  ventas  = [],
   ajustes = [],
   conversiones = [],
   productosExtra = [],
@@ -31,6 +69,7 @@ export default function Inventario({
   const [filtroCategoria, setFiltroCategoria] = useState("Todos");
   const [filtroStock,     setFiltroStock]     = useState("Todos");
   const [editingPrecio,   setEditingPrecio]   = useState(null); // { sku, valor }
+  const [openMovSku,      setOpenMovSku]      = useState(null); // SKU cuyo panel de movimientos está abierto
 
   const categorias = useMemo(
     () => ["Todos", ...new Set(catalogo.map((i) => i.categoria))],
@@ -353,16 +392,16 @@ export default function Inventario({
                           </td>
                         </tr>
                         {catItems.map((item, idx) => (
-                          <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}) }}>
-                            {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto)}
+                          <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}), ...(openMovSku === item.sku ? { background:"#eff6ff" } : {}) }}>
+                            {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, openMovSku === item.sku ? getMovimientos(item.sku, compras, ventas, conversiones, ajustes) : null)}
                           </tr>
                         ))}
                       </Fragment>
                     ))
                     /* ── Vista plana (categoría específica) ─────────────── */
                     : filtrado.map((item, idx) => (
-                      <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}) }}>
-                        {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto)}
+                      <tr key={item.sku} style={{ background: idx % 2 === 0 ? "white" : "#fafafa", ...(editingPrecio?.sku === item.sku ? { background:"#fff7ed" } : {}), ...(openMovSku === item.sku ? { background:"#eff6ff" } : {}) }}>
+                        {renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, openMovSku === item.sku ? getMovimientos(item.sku, compras, ventas, conversiones, ajustes) : null)}
                       </tr>
                     ))
                   }
@@ -989,7 +1028,10 @@ function InvKpi({ label, value, sub, color }) {
 }
 
 // ─── Row renderer (shared between flat and grouped views) ─────────────────────
-function renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto) {
+function renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDeleteProducto, openMovSku, setOpenMovSku, movimientosData) {
+  const isOpen = openMovSku === item.sku;
+  const TIPO_COLOR = { compra:"#059669", venta:"#dc2626", conversion:"#7c3aed", ajuste:"#d97706" };
+  const TIPO_LABEL = { compra:"Compra", venta:"Venta", conversion:"Conversión", ajuste:"Ajuste" };
   return (
     <>
       <td style={tdStyle}>
@@ -998,7 +1040,45 @@ function renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDelet
       </td>
       <td style={tdStyle}><span style={{ fontWeight:600 }}>{item.nombre}</span></td>
       <td style={tdStyle}><OrigenBadge origen={item.tipo} /></td>
-      <td style={tdStyle}><StockBadge stock={item.stock} tipo={item.tipo} /></td>
+      <td style={tdStyle}>
+        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+          <StockBadge stock={item.stock} tipo={item.tipo} />
+          {item.tipo !== "Servicio" && item.tipo !== "Bajo pedido" && (
+            <button title="Ver movimientos de stock"
+              onClick={() => setOpenMovSku(isOpen ? null : item.sku)}
+              style={{ border:"none", background: isOpen ? "#dbeafe" : "#f1f5f9", color: isOpen ? "#1d4ed8" : "#64748b",
+                borderRadius:20, padding:"2px 7px", cursor:"pointer", fontSize:11, fontWeight:700, flexShrink:0 }}>
+              ℹ
+            </button>
+          )}
+        </div>
+        {isOpen && movimientosData && (
+          <div style={{ marginTop:6, background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:8, padding:"8px 10px", minWidth:220, fontSize:11 }}>
+            <div style={{ fontWeight:700, color:"#334155", marginBottom:5, fontSize:11 }}>Movimientos de stock</div>
+            {movimientosData.length === 0 ? (
+              <div style={{ color:"#94a3b8", fontStyle:"italic" }}>Sin movimientos registrados</div>
+            ) : (
+              <>
+                {movimientosData.map((m, i) => (
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"2px 0", borderBottom:"1px solid #f1f5f9" }}>
+                    <span style={{ color:"#64748b" }}>
+                      <span style={{ fontWeight:700, color: TIPO_COLOR[m.tipo] }}>{TIPO_LABEL[m.tipo]}</span>
+                      {" · "}{m.fecha}{m.ref ? ` · ${m.ref}` : ""}
+                    </span>
+                    <span style={{ fontWeight:700, color: m.signo > 0 ? "#059669" : "#dc2626", flexShrink:0 }}>
+                      {m.signo > 0 ? "+" : ""}{m.signo * m.cantidad}
+                    </span>
+                  </div>
+                ))}
+                <div style={{ display:"flex", justifyContent:"space-between", fontWeight:700, marginTop:5, color:"#0f172a" }}>
+                  <span>= Stock actual</span>
+                  <span style={{ color: item.stock > 0 ? "#059669" : "#dc2626" }}>{item.stock}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </td>
       <td style={tdStyle}>
         {item.costo > 0 ? <span style={{ fontWeight:700 }}>{money(item.costo)}</span> : <span style={{ color:"#94a3b8" }}>—</span>}
       </td>

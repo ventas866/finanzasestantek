@@ -326,29 +326,35 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
   const distribucion = useMemo(() => {
     const totalIngresos      = ventas.reduce((a, v) => a + v.total, 0);
     const totalRendimientos  = rendimientos.reduce((a, r) => a + r.monto, 0);
+    // costoTotal accrual (propio + reventa) — mismo criterio que KPI Ganancia neta
+    const totalCostosVenta   = ventas.reduce((a, v) => a + (v.costoTotal || 0), 0);
+    const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
+    const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
+    // Utilidad neta (igual que KPI "Ganancia neta")
+    const utilidadNeta       = totalIngresos + totalRendimientos - totalCostosVenta - totalGastosOp;
+    // Saldo distribuible = utilidad - retiros ya realizados (coincide con los cards de retiros)
+    const saldoDistribuible  = utilidadNeta - totalRetiros;
+
+    // ── Info de caja (referencia) ──────────────────────────────────────────────
+    const totalCapital       = inversiones.reduce((a, i) => a + i.valor, 0);
     const totalComprasBase   = compras.reduce((a, c) => a + c.total, 0);
-    // Costo de reventa en base ACCRUAL (igual que KPI "Ganancia neta"):
-    // se usa v.costoReventa (costo de los ítems de reventa vendidos) en lugar de
-    // pagosProvReventa (pagos cash ya realizados). Así el "Saldo distribuible"
-    // es consistente con la utilidad y descuenta lo que aún se debe a proveedores.
     const totalCostoReventa  = ventas.reduce((a, v) => a + (v.costoReventa || 0), 0);
-    // Pagos ya realizados a proveedores de reventa (para mostrar cuánto falta por pagar)
     const totalPagadoReventa = ventas.reduce((a, v) =>
       a + (v.pagosProvReventa || []).reduce((b, p) => b + p.monto, 0), 0);
     const pendienteReventa   = Math.max(0, totalCostoReventa - totalPagadoReventa);
-    const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
-    const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
-    const totalEgresos       = totalComprasBase + totalCostoReventa + totalGastosOp + totalRetiros;
-    const totalCapital       = inversiones.reduce((a, i) => a + i.valor, 0);
-    const cajaDisponible     = totalCapital + totalIngresos + totalRendimientos - totalEgresos;
+    // cajaDisponible = capital + ventas + rend - compras - costoReventa - gastos - retiros
+    // Representa: caja real + por cobrar - por pagar - inventario
+    const cajaDisponible     =
+      totalCapital + totalIngresos + totalRendimientos
+      - totalComprasBase - totalCostoReventa - totalGastosOp - totalRetiros;
     const conStock           = catalogo.filter((x) => x.stock > 0);
     const valorInv           = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
-    const saldoDistribuible  = cajaDisponible - valorInv;
+    const cajaNeta           = cajaDisponible - valorInv; // caja + cartera - por pagar - inventario
     return {
-      totalIngresos, totalRendimientos, totalComprasBase,
-      totalCostoReventa, totalPagadoReventa, pendienteReventa,
-      totalGastosOp, totalRetiros, totalEgresos, totalCapital,
-      cajaDisponible, valorInv, saldoDistribuible,
+      totalIngresos, totalRendimientos, totalCostosVenta,
+      totalGastosOp, totalRetiros, utilidadNeta, saldoDistribuible,
+      totalCapital, totalCostoReventa, totalPagadoReventa, pendienteReventa,
+      cajaDisponible, valorInv, cajaNeta,
     };
   }, [ventas, compras, gastos, inversiones, catalogo, retiros, rendimientos]);
 
@@ -630,29 +636,36 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
 
         {/* Cálculo principal */}
         <div style={{ display:"flex", gap:20, flexWrap:"wrap", alignItems:"stretch" }}>
-          {/* Desglose */}
+          {/* Desglose utilidad */}
           <div style={{ flex:1, minWidth:260, display:"flex", flexDirection:"column", gap:9 }}>
-            <DistRow label="(+) Capital aportado"         value={distribucion.totalCapital}     color="#1565C0" />
-            <DistRow label="(+) Ingresos por ventas"      value={distribucion.totalIngresos}    color={C.positive} />
-            <DistRow label="(+) Rendimientos financieros" value={distribucion.totalRendimientos} color="#00838F" />
+            <DistRow label="(+) Ingresos por ventas"      value={distribucion.totalIngresos}     color={C.positive} />
+            {distribucion.totalRendimientos > 0 && (
+              <DistRow label="(+) Rendimientos financieros" value={distribucion.totalRendimientos} color="#00838F" />
+            )}
+            <DistRow label="(−) Costo de ventas (accrual)" value={distribucion.totalCostosVenta}   color={C.negative} indent />
+            <DistRow label="(−) Gastos operativos"          value={distribucion.totalGastosOp}      color={C.negative} indent />
             <div style={{ height:1, background:C.border, margin:"2px 0" }} />
-            <div style={{ fontSize:11, fontWeight:700, color:C.ink4, textTransform:"uppercase", letterSpacing:".5px" }}>Egresos</div>
-            <DistRow label="Compras de inventario"        value={distribucion.totalComprasBase}    color={C.negative} indent />
-            <DistRow
-              label={
-                distribucion.pendienteReventa > 0
-                  ? `Costo reventa (accrual) · ⚠ $${Math.round(distribucion.pendienteReventa).toLocaleString("es-CO")} por pagar`
-                  : "Costo reventa (accrual)"
-              }
-              value={distribucion.totalCostoReventa}
-              color={C.negative}
-              indent
-            />
-            <DistRow label="Gastos operativos"            value={distribucion.totalGastosOp}       color={C.negative} indent />
-            <DistRow label="Retiros de socios"            value={distribucion.totalRetiros}        color={C.negative} indent />
-            <div style={{ height:1, background:C.border, margin:"2px 0" }} />
-            <DistRow label="= Caja disponible"            value={distribucion.cajaDisponible}    color={distribucion.cajaDisponible >= 0 ? C.positive : C.negative} bold />
-            <DistRow label="(−) Inventario inmovilizado"  value={distribucion.valorInv}          color="#E65100" />
+            <DistRow label="= Utilidad neta acumulada"      value={distribucion.utilidadNeta}       color={distribucion.utilidadNeta >= 0 ? C.positive : C.negative} bold />
+            <DistRow label="(−) Retiros de socios"          value={distribucion.totalRetiros}       color={C.negative} indent />
+            <div style={{ height:2, background: distribucion.saldoDistribuible >= 0 ? "#A5D6A7" : "#EF9A9A", margin:"4px 0" }} />
+            {/* Info de caja como referencia */}
+            {distribucion.pendienteReventa > 0 && (
+              <div style={{ fontSize:12, color:"#b45309", background:"#fff8e1", borderRadius:8, padding:"6px 10px", display:"flex", gap:6 }}>
+                <span>⚠</span>
+                <span>Prov. reventa por pagar: <strong>${Math.round(distribucion.pendienteReventa).toLocaleString("es-CO")}</strong> (ya descontado del costo)</span>
+              </div>
+            )}
+            <div style={{ fontSize:12, color:C.ink4, background:"#f8fafc", borderRadius:8, padding:"8px 10px", display:"flex", flexDirection:"column", gap:4, marginTop:4 }}>
+              <div style={{ fontWeight:700, marginBottom:2 }}>📊 Referencia de caja</div>
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span>Caja neta (real + cartera − obligaciones − inventario)</span>
+                <span style={{ fontWeight:700, color: distribucion.cajaNeta >= 0 ? C.positive : C.negative }}>{money(distribucion.cajaNeta)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between" }}>
+                <span>Capital aportado (se devuelve ~2 años)</span>
+                <span style={{ color:"#1565C0", fontWeight:600 }}>{money(distribucion.totalCapital)}</span>
+              </div>
+            </div>
           </div>
           {/* Resultado */}
           <div style={{
@@ -670,8 +683,11 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
             </div>
             <div style={{ fontSize:12, color:C.ink4, maxWidth:160 }}>
               {distribucion.saldoDistribuible >= 0
-                ? "Disponible para repartir a los socios"
-                : "Capital insuficiente para distribución"}
+                ? "Utilidad pendiente de repartir"
+                : "Utilidad insuficiente para distribución"}
+            </div>
+            <div style={{ fontSize:11, color:C.ink4, borderTop:"1px solid #c8e6c9", paddingTop:8, width:"100%" }}>
+              = suma de «Disponible» en los cards de retiros
             </div>
           </div>
         </div>

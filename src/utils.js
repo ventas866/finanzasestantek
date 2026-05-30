@@ -45,6 +45,8 @@ export function isoMonth(isoDate) {
 export function lastNMonths(n = 6) {
   const result = [];
   const d = new Date();
+  d.setDate(1); // Fijar día 1 para evitar desbordamiento al restar meses
+                // (ej: 30 de mayo → restar → 30 de feb → desborda a marzo = doble Mar en gráfica)
   for (let i = 0; i < n; i++) {
     result.unshift(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
     d.setMonth(d.getMonth() - 1);

@@ -327,18 +327,26 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     const totalIngresos      = ventas.reduce((a, v) => a + v.total, 0);
     const totalRendimientos  = rendimientos.reduce((a, r) => a + r.monto, 0);
     const totalComprasBase   = compras.reduce((a, c) => a + c.total, 0);
-    const totalPagosReventa  = ventas.reduce((a, v) =>
+    // Costo de reventa en base ACCRUAL (igual que KPI "Ganancia neta"):
+    // se usa v.costoReventa (costo de los ítems de reventa vendidos) en lugar de
+    // pagosProvReventa (pagos cash ya realizados). Así el "Saldo distribuible"
+    // es consistente con la utilidad y descuenta lo que aún se debe a proveedores.
+    const totalCostoReventa  = ventas.reduce((a, v) => a + (v.costoReventa || 0), 0);
+    // Pagos ya realizados a proveedores de reventa (para mostrar cuánto falta por pagar)
+    const totalPagadoReventa = ventas.reduce((a, v) =>
       a + (v.pagosProvReventa || []).reduce((b, p) => b + p.monto, 0), 0);
+    const pendienteReventa   = Math.max(0, totalCostoReventa - totalPagadoReventa);
     const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
     const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
-    const totalEgresos       = totalComprasBase + totalPagosReventa + totalGastosOp + totalRetiros;
+    const totalEgresos       = totalComprasBase + totalCostoReventa + totalGastosOp + totalRetiros;
     const totalCapital       = inversiones.reduce((a, i) => a + i.valor, 0);
     const cajaDisponible     = totalCapital + totalIngresos + totalRendimientos - totalEgresos;
     const conStock           = catalogo.filter((x) => x.stock > 0);
     const valorInv           = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
     const saldoDistribuible  = cajaDisponible - valorInv;
     return {
-      totalIngresos, totalRendimientos, totalComprasBase, totalPagosReventa,
+      totalIngresos, totalRendimientos, totalComprasBase,
+      totalCostoReventa, totalPagadoReventa, pendienteReventa,
       totalGastosOp, totalRetiros, totalEgresos, totalCapital,
       cajaDisponible, valorInv, saldoDistribuible,
     };
@@ -612,7 +620,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
           <div>
             <h3 style={{ ...panelTitle, fontSize: 16 }}>💰 Posición distribuible a accionistas</h3>
             <p style={{ margin:"3px 0 0", fontSize:12, color:C.ink4 }}>
-              Datos históricos totales · cuánto se puede repartir luego de cubrir inventario
+              Histórico total · base accrual · alineado con utilidad neta
             </p>
           </div>
           <span style={{ fontSize:11, padding:"4px 10px", background:C.brandLight, color:C.brand, borderRadius:6, fontWeight:700, flexShrink:0 }}>
@@ -629,10 +637,19 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
             <DistRow label="(+) Rendimientos financieros" value={distribucion.totalRendimientos} color="#00838F" />
             <div style={{ height:1, background:C.border, margin:"2px 0" }} />
             <div style={{ fontSize:11, fontWeight:700, color:C.ink4, textTransform:"uppercase", letterSpacing:".5px" }}>Egresos</div>
-            <DistRow label="Compras de inventario"        value={distribucion.totalComprasBase}  color={C.negative} indent />
-            <DistRow label="Pagos proveedores reventa"    value={distribucion.totalPagosReventa} color={C.negative} indent />
-            <DistRow label="Gastos operativos"            value={distribucion.totalGastosOp}     color={C.negative} indent />
-            <DistRow label="Retiros de socios"            value={distribucion.totalRetiros}      color={C.negative} indent />
+            <DistRow label="Compras de inventario"        value={distribucion.totalComprasBase}    color={C.negative} indent />
+            <DistRow
+              label={
+                distribucion.pendienteReventa > 0
+                  ? `Costo reventa (accrual) · ⚠ $${Math.round(distribucion.pendienteReventa).toLocaleString("es-CO")} por pagar`
+                  : "Costo reventa (accrual)"
+              }
+              value={distribucion.totalCostoReventa}
+              color={C.negative}
+              indent
+            />
+            <DistRow label="Gastos operativos"            value={distribucion.totalGastosOp}       color={C.negative} indent />
+            <DistRow label="Retiros de socios"            value={distribucion.totalRetiros}        color={C.negative} indent />
             <div style={{ height:1, background:C.border, margin:"2px 0" }} />
             <DistRow label="= Caja disponible"            value={distribucion.cajaDisponible}    color={distribucion.cajaDisponible >= 0 ? C.positive : C.negative} bold />
             <DistRow label="(−) Inventario inmovilizado"  value={distribucion.valorInv}          color="#E65100" />

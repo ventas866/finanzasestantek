@@ -66,8 +66,25 @@ export default function Cartera({
       .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   }, [compras]);
 
-  const totalPorCobrar = cuentasPorCobrar.reduce((a, v) => a + v.pendiente, 0);
-  const totalPorPagar  = cuentasPorPagar.reduce((a, c) => a + c.pendiente, 0);
+  // Proveedores de reventa: deuda que surge de ventas mixtas/reventa pendientes de pago al proveedor
+  const cuentasPorPagarReventa = useMemo(() => {
+    return ventas
+      .map((v) => {
+        const costoRev  = v.costoReventa || 0;
+        if (costoRev <= 0) return null;
+        const pagado    = (v.pagosProvReventa || []).reduce((a, p) => a + p.monto, 0);
+        const pendiente = Math.max(0, costoRev - pagado);
+        if (pendiente <= 0) return null;
+        return { ...v, costoRev, pagado, pendiente };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.pendiente - a.pendiente);
+  }, [ventas]);
+
+  const totalPorCobrar        = cuentasPorCobrar.reduce((a, v) => a + v.pendiente, 0);
+  const totalPorPagar         = cuentasPorPagar.reduce((a, c) => a + c.pendiente, 0);
+  const totalPorPagarReventa  = cuentasPorPagarReventa.reduce((a, v) => a + v.pendiente, 0);
+  const totalPorPagarTotal    = totalPorPagar + totalPorPagarReventa;
 
   function registrarAbono() {
     const valor = Number(abonoForm.valor || 0);
@@ -106,17 +123,17 @@ export default function Cartera({
         />
         <KpiCard
           label="Por pagar"
-          value={money(totalPorPagar)}
-          sub={`${cuentasPorPagar.filter((c) => !c.saldado).length} proveedores pendientes`}
-          accent={totalPorPagar > 0 ? "#ef4444" : "#10b981"}
-          highlight={totalPorPagar > 0 ? "negative" : "positive"}
+          value={money(totalPorPagarTotal)}
+          sub={`${cuentasPorPagar.filter((c) => !c.saldado).length} compras · ${cuentasPorPagarReventa.length} reventa`}
+          accent={totalPorPagarTotal > 0 ? "#ef4444" : "#10b981"}
+          highlight={totalPorPagarTotal > 0 ? "negative" : "positive"}
         />
         <KpiCard
           label="Posición neta"
-          value={money(totalPorCobrar - totalPorPagar)}
+          value={money(totalPorCobrar - totalPorPagarTotal)}
           sub="Por cobrar − Por pagar"
-          accent={(totalPorCobrar - totalPorPagar) >= 0 ? "#10b981" : "#ef4444"}
-          highlight={(totalPorCobrar - totalPorPagar) >= 0 ? "positive" : "negative"}
+          accent={(totalPorCobrar - totalPorPagarTotal) >= 0 ? "#10b981" : "#ef4444"}
+          highlight={(totalPorCobrar - totalPorPagarTotal) >= 0 ? "positive" : "negative"}
         />
       </div>
 
@@ -321,6 +338,62 @@ export default function Cartera({
               </div>
             ))}
           </div>
+        )}
+      </Panel>
+
+      {/* ── Proveedores de reventa pendientes ── */}
+      <Panel title={`Proveedores de reventa pendientes (${cuentasPorPagarReventa.length})`}>
+        {cuentasPorPagarReventa.length === 0 ? (
+          <EmptyState icon="✅" text="No hay deudas pendientes con proveedores de reventa." />
+        ) : (
+          <>
+            <div style={{ fontSize:12, color:"#92400e", background:"#fff8e1", border:"1px solid #ffd54f", borderRadius:8, padding:"8px 12px", marginBottom:12 }}>
+              💡 Estos pagos se registran desde la página <strong>Ventas</strong> → en cada venta con reventa → botón <em>"Registrar pago al proveedor"</em>.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              {cuentasPorPagarReventa.map((v) => (
+                <div key={v.id} style={{ border:"1px solid #fde68a", borderRadius:12, padding:"14px 16px", background:"#fffbeb" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800, fontSize:15 }}>{v.cliente}</div>
+                      <div style={{ fontSize:13, color:"#94a3b8" }}>{v.fecha} · {v.origen}</div>
+                      {v.descripcion && <div style={{ fontSize:13, color:"#64748b", marginTop:4 }}>{v.descripcion}</div>}
+                      {/* Ítems de reventa */}
+                      <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:5 }}>
+                        {(v.items || []).filter((it) => it.esReventa).map((it) => (
+                          <span key={it.id} style={{ fontSize:11, background:"#fef3c7", color:"#92400e", borderRadius:6, padding:"2px 8px", fontWeight:600 }}>
+                            {it.sku} ×{it.cantidad} · {money(it.subtotalCosto)}
+                          </span>
+                        ))}
+                      </div>
+                      {/* Pagos ya realizados */}
+                      {(v.pagosProvReventa || []).length > 0 && (
+                        <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:3 }}>
+                          {v.pagosProvReventa.map((p, i) => (
+                            <div key={i} style={{ fontSize:12, color:"#065f46" }}>
+                              ✓ Pagado {p.fecha}: {money(p.monto)}{p.nota ? ` · ${p.nota}` : ""}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign:"right", flexShrink:0 }}>
+                      <div style={{ fontSize:12, color:"#94a3b8" }}>Costo reventa: {money(v.costoRev)}</div>
+                      <div style={{ fontSize:12, color:"#64748b" }}>Pagado: {money(v.pagado)}</div>
+                      <div style={{ fontWeight:900, fontSize:18, color:"#b45309" }}>
+                        ⚠ {money(v.pendiente)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div style={{ display:"flex", justifyContent:"flex-end", paddingTop:8, borderTop:"1px solid #fde68a" }}>
+                <span style={{ fontWeight:800, fontSize:14, color:"#b45309" }}>
+                  Total pendiente proveedores reventa: {money(totalPorPagarReventa)}
+                </span>
+              </div>
+            </div>
+          </>
         )}
       </Panel>
     </div>

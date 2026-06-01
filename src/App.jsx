@@ -20,6 +20,7 @@ import Cartera      from "./pages/Cartera.jsx";
 import Gastos       from "./pages/Gastos.jsx";
 import Inversiones  from "./pages/Inversiones.jsx";
 import Rentabilidad from "./pages/Rentabilidad.jsx";
+import Prestamos    from "./pages/Prestamos.jsx";
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 const ICONS = {
@@ -32,6 +33,7 @@ const ICONS = {
   Gastos:       () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   Inversiones:  () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>,
   Rentabilidad: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+  Prestamos:    () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
 };
 
 function mergeCuentas(stored) {
@@ -77,6 +79,7 @@ export default function App() {
   const [retiros,             setRetiros]             = useState([]);
   const [rendimientos,        setRendimientos]        = useState([]);
   const [transformacionesInv, setTransformacionesInv] = useState([]);
+  const [prestamos,           setPrestamos]           = useState([]);
   const [categoriasGasto, setCategoriasGasto] = useState(() => {
     try { return JSON.parse(localStorage.getItem("estantek_cat_gasto") || "[]"); }
     catch { return []; }
@@ -128,7 +131,7 @@ export default function App() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [c, v, g, i, cu, tr, aj, co, prods, precs, ret, rend, tInv] = await Promise.all([
+        const [c, v, g, i, cu, tr, aj, co, prods, precs, ret, rend, tInv, pres] = await Promise.all([
           fetchTable("compras"),
           fetchTable("ventas"),
           fetchTable("gastos"),
@@ -142,11 +145,13 @@ export default function App() {
           fetchTable("retiros"),
           fetchTable("rendimientos"),
           fetchTable("transformaciones_inv"),
+          fetchTable("prestamos"),
         ]);
         setCompras(c); setVentas(v); setGastos(g); setInversiones(i);
         setTransferencias(tr); setAjustes(aj); setConversiones(co);
         setRetiros(ret || []); setRendimientos(rend || []);
         setTransformacionesInv(tInv || []);
+        setPrestamos(pres || []);
         setProductosExtra(prods);
         setPrecios(precs);
         if (cu.length > 0) setCuentas(mergeCuentas(cu));
@@ -446,6 +451,21 @@ export default function App() {
     dbDelete("transformaciones_inv", id);
   }
 
+  // ── Préstamos ─────────────────────────────────────────────────────────────
+  function guardarPrestamo(prestamo) {
+    setPrestamos((p) =>
+      p.find((x) => x.id === prestamo.id)
+        ? p.map((x) => (x.id === prestamo.id ? prestamo : x))
+        : [prestamo, ...p]
+    );
+    dbSave("prestamos", prestamo);
+  }
+
+  function eliminarPrestamo(id) {
+    setPrestamos((p) => p.filter((x) => x.id !== id));
+    dbDelete("prestamos", id);
+  }
+
   function guardarProductoExtra(prod) {
     setProductosExtra((p)=>[...p, prod]);
     saveProducto(prod);
@@ -638,7 +658,7 @@ export default function App() {
         </header>
 
         <main style={pageContent} className="page-content-inner">
-          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} cuentas={cuentas} retiros={retiros} rendimientos={rendimientos} onRetiro={registrarRetiro} onEditarRetiro={editarRetiro} onEliminarRetiro={eliminarRetiro} onRendimiento={registrarRendimiento} />}
+          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} cuentas={cuentas} retiros={retiros} rendimientos={rendimientos} prestamos={prestamos} onRetiro={registrarRetiro} onEditarRetiro={editarRetiro} onEliminarRetiro={eliminarRetiro} onRendimiento={registrarRendimiento} />}
           {pagina==="Inventario"   && (
             <Inventario
               catalogo={catalogo}
@@ -726,6 +746,7 @@ export default function App() {
             />
           )}
           {pagina==="Rentabilidad" && <Rentabilidad ventas={ventas} compras={compras} gastos={gastos} />}
+          {pagina==="Prestamos"   && <Prestamos prestamos={prestamos} cuentas={cuentas} onSave={guardarPrestamo} onDelete={eliminarPrestamo} />}
         </main>
       </div>
     </div>

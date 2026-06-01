@@ -83,7 +83,7 @@ const SOCIOS_DEF = [
 ];
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], onRetiro, onEditarRetiro, onEliminarRetiro, onRendimiento }) {
+export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], prestamos = [], onRetiro, onEditarRetiro, onEliminarRetiro, onRendimiento }) {
   const [chartPeriod, setChartPeriod] = useState("6");
   const [filtroAno,   setFiltroAno]   = useState("");   // "" = histórico total
   const [filtroMes,   setFiltroMes]   = useState("");   // "01"–"12", solo activo si filtroAno
@@ -131,33 +131,46 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
 
   // ── KPI stats + comparación con período anterior ──────────────────────────
   const kpiStats = useMemo(() => {
-    function calcFromArrays(vv, gg) {
+    // Suma de intereses de préstamos filtrados por período
+    function getIntereses(filtA, filtM) {
+      return prestamos.reduce((a, p) =>
+        a + (p.pagos || []).filter((q) => {
+          if (!filtA) return true;
+          if (!filtM) return q.fecha?.startsWith(filtA);
+          return q.fecha?.slice(0, 7) === `${filtA}-${filtM}`;
+        }).reduce((b, q) => b + Number(q.interes || 0), 0), 0);
+    }
+
+    function calcFromArrays(vv, gg, extraExpenses = 0) {
       const ingresos = vv.reduce((a, v) => a + v.total, 0);
       const costo    = vv.reduce((a, v) => a + (v.costoTotal || 0), 0);
       const gasto    = gg.reduce((a, g) => a + g.valor, 0);
-      return { ingresos, costo, gasto, ganancia: ingresos - costo - gasto };
+      return { ingresos, costo, gasto, ganancia: ingresos - costo - gasto - extraExpenses };
     }
-    const curr = calcFromArrays(vF, gF);
+
+    const curr = calcFromArrays(vF, gF, getIntereses(filtroAno, filtroMes));
 
     // "anterior" según el nivel de filtro
-    let prevV = [], prevG = [];
+    let prevV = [], prevG = [], prevFiltA = "", prevFiltM = "";
     if (filtroAno && filtroMes) {
       // Mes seleccionado → comparar con mes anterior
       const pd = new Date(Number(filtroAno), Number(filtroMes) - 2, 1);
       const prevM = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, "0")}`;
       prevV = ventas.filter((x) => isoMonth(x.fecha) === prevM);
       prevG = gastos.filter((x) => isoMonth(x.fecha) === prevM);
+      [prevFiltA, prevFiltM] = prevM.split("-");
     } else if (filtroAno && !filtroMes) {
       // Año seleccionado → comparar con año anterior
       const prevAno = String(Number(filtroAno) - 1);
       prevV = ventas.filter((x) => x.fecha?.startsWith(prevAno));
       prevG = gastos.filter((x) => x.fecha?.startsWith(prevAno));
+      prevFiltA = prevAno;
     }
     // Sin filtro (histórico): no hay anterior relevante
-    const prev = calcFromArrays(prevV, prevG);
+    const prev = calcFromArrays(prevV, prevG, getIntereses(prevFiltA, prevFiltM));
     const hasPrev = filtroAno !== "";
     return { curr, prev, hasPrev };
-  }, [vF, gF, filtroAno, filtroMes, ventas, gastos]);
+  }, [vF, gF, filtroAno, filtroMes, ventas, gastos, prestamos]);
 
   // ── Etiqueta del período seleccionado ─────────────────────────────────────
   const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -200,14 +213,20 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       a + (v.pagosProvReventa||[]).reduce((b, p) => b + p.monto, 0), 0);
     const totalCompras     = cF.reduce((a, c) => a + c.total, 0) + totalPagosReventa;
     const totalInversiones = iF.reduce((a, i) => a + i.valor, 0);
+    const totalPrestamosRecibidos = prestamos.reduce((a, p) => a + Number(p.monto || 0), 0);
+    const totalPagosPrestamos     = prestamos.reduce((a, p) =>
+      a + (p.pagos || []).reduce((b, q) => b + Number(q.capital || 0) + Number(q.interes || 0), 0), 0);
+
     const cajaTeorica      =
       inversiones.reduce((a,x)=>a+x.valor,0) +
       ventas.reduce((a,x)=>a+x.total,0) +
-      rendimientos.reduce((a,r)=>a+r.monto,0) -
+      rendimientos.reduce((a,r)=>a+r.monto,0) +
+      totalPrestamosRecibidos -
       compras.reduce((a,x)=>a+x.total,0) -
       gastos.reduce((a,x)=>a+x.valor,0) -
       ventas.reduce((a,v)=>a+(v.pagosProvReventa||[]).reduce((b,p)=>b+p.monto,0),0) -
-      retiros.reduce((a,r)=>a+r.monto,0);
+      retiros.reduce((a,r)=>a+r.monto,0) -
+      totalPagosPrestamos;
 
     const conStock               = catalogo.filter((x) => x.stock > 0);
     const valorInventarioCosto   = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
@@ -287,7 +306,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       carteraPendiente, cuentasPorPagar,
       ventasPorOrigen, topProveedores, topInventario, gastosData,
     };
-  }, [vF, cF, gF, iF, catalogo, ventas, compras, gastos, inversiones, retiros, rendimientos]);
+  }, [vF, cF, gF, iF, catalogo, ventas, compras, gastos, inversiones, retiros, rendimientos, prestamos]);
 
   // ── Chart data ────────────────────────────────────────────────────────────
   const tendenciaData = useMemo(() => {
@@ -330,8 +349,15 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     const totalCostosVenta   = ventas.reduce((a, v) => a + (v.costoTotal || 0), 0);
     const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
     const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
-    // Utilidad neta (igual que KPI "Ganancia neta")
-    const utilidadNeta       = totalIngresos + totalRendimientos - totalCostosVenta - totalGastosOp;
+    // Intereses de préstamos = gasto financiero (afecta utilidad, no solo caja)
+    const totalInteresesPrestamos = prestamos.reduce((a, p) =>
+      a + (p.pagos || []).reduce((b, q) => b + Number(q.interes || 0), 0), 0);
+    const totalCapitalPrestamos   = prestamos.reduce((a, p) =>
+      a + (p.pagos || []).reduce((b, q) => b + Number(q.capital || 0), 0), 0);
+    const totalPrestamosRecibidos = prestamos.reduce((a, p) => a + Number(p.monto || 0), 0);
+    const deudaPendiente          = totalPrestamosRecibidos - totalCapitalPrestamos;
+    // Utilidad neta: ingresos - costos - gastos - intereses (accrual, igual que KPI)
+    const utilidadNeta       = totalIngresos + totalRendimientos - totalCostosVenta - totalGastosOp - totalInteresesPrestamos;
     // Saldo distribuible = utilidad - retiros ya realizados (coincide con los cards de retiros)
     const saldoDistribuible  = utilidadNeta - totalRetiros;
 
@@ -342,21 +368,22 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     const totalPagadoReventa = ventas.reduce((a, v) =>
       a + (v.pagosProvReventa || []).reduce((b, p) => b + p.monto, 0), 0);
     const pendienteReventa   = Math.max(0, totalCostoReventa - totalPagadoReventa);
-    // cajaDisponible = capital + ventas + rend - compras - costoReventa - gastos - retiros
-    // Representa: caja real + por cobrar - por pagar - inventario
+    // cajaDisponible incluye flujos de préstamos (recibidos - pagados)
     const cajaDisponible     =
-      totalCapital + totalIngresos + totalRendimientos
-      - totalComprasBase - totalCostoReventa - totalGastosOp - totalRetiros;
+      totalCapital + totalIngresos + totalRendimientos + totalPrestamosRecibidos
+      - totalComprasBase - totalCostoReventa - totalGastosOp - totalRetiros
+      - totalCapitalPrestamos - totalInteresesPrestamos;
     const conStock           = catalogo.filter((x) => x.stock > 0);
     const valorInv           = conStock.reduce((a, i) => a + i.stock * i.costo, 0);
-    const cajaNeta           = cajaDisponible - valorInv; // caja + cartera - por pagar - inventario
+    const cajaNeta           = cajaDisponible - valorInv;
     return {
       totalIngresos, totalRendimientos, totalCostosVenta,
       totalGastosOp, totalRetiros, utilidadNeta, saldoDistribuible,
       totalCapital, totalCostoReventa, totalPagadoReventa, pendienteReventa,
       cajaDisponible, valorInv, cajaNeta,
+      totalInteresesPrestamos, deudaPendiente, totalPrestamosRecibidos,
     };
-  }, [ventas, compras, gastos, inversiones, catalogo, retiros, rendimientos]);
+  }, [ventas, compras, gastos, inversiones, catalogo, retiros, rendimientos, prestamos]);
 
   // ── Análisis de retiros por socio ─────────────────────────────────────────
   // Regla: utilidad se reparte 40% Raúl / 60% Nicolás y Luisa (fijo, independiente del capital).
@@ -373,9 +400,12 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     const totalCostoVentas  = ventas.reduce((a, v) => a + (v.costoTotal || 0), 0);
     const totalGastosOp     = gastos.reduce((a, g) => a + g.valor, 0);
 
+    // Intereses de préstamos = gasto financiero (reduce utilidad distribuible)
+    const totalIntereses = prestamos.reduce((a, p) =>
+      a + (p.pagos || []).reduce((b, q) => b + Number(q.interes || 0), 0), 0);
     // Utilidad neta = igual a "Ganancia neta" del dashboard
     // NO se descuenta capital (se devuelve aparte) NI retiros (son distribuciones de esta utilidad)
-    const utilidad = totalIngresos + totalRendimientos - totalCostoVentas - totalGastosOp;
+    const utilidad = totalIngresos + totalRendimientos - totalCostoVentas - totalGastosOp - totalIntereses;
 
     const totalCapital = inversiones.reduce((a, i) => a + i.valor, 0);
 
@@ -386,7 +416,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       const disponible      = leCorresponde - yaRetirado;
       return { ...sc, capitalAportado, totalCapital, utilidad, yaRetirado, leCorresponde, disponible };
     });
-  }, [inversiones, ventas, gastos, retiros, rendimientos]);
+  }, [inversiones, ventas, gastos, retiros, rendimientos, prestamos]);
 
   const hasData = ventas.length > 0;
 
@@ -644,6 +674,9 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
             )}
             <DistRow label="(−) Costo de ventas (accrual)" value={distribucion.totalCostosVenta}   color={C.negative} indent />
             <DistRow label="(−) Gastos operativos"          value={distribucion.totalGastosOp}      color={C.negative} indent />
+            {distribucion.totalInteresesPrestamos > 0 && (
+              <DistRow label="(−) Intereses de préstamos"   value={distribucion.totalInteresesPrestamos} color={C.negative} indent />
+            )}
             <div style={{ height:1, background:C.border, margin:"2px 0" }} />
             <DistRow label="= Utilidad neta acumulada"      value={distribucion.utilidadNeta}       color={distribucion.utilidadNeta >= 0 ? C.positive : C.negative} bold />
             <DistRow label="(−) Retiros de socios"          value={distribucion.totalRetiros}       color={C.negative} indent />
@@ -665,6 +698,14 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
                 <span>Capital aportado (se devuelve ~2 años)</span>
                 <span style={{ color:"#1565C0", fontWeight:600 }}>{money(distribucion.totalCapital)}</span>
               </div>
+              {distribucion.totalPrestamosRecibidos > 0 && (
+                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                  <span>Deuda préstamos (pendiente)</span>
+                  <span style={{ color: distribucion.deudaPendiente > 0 ? C.negative : C.positive, fontWeight:600 }}>
+                    {money(distribucion.deudaPendiente)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           {/* Resultado */}

@@ -54,6 +54,7 @@ export const NAV_ITEMS = [
   { id:"Gastos",       label:"Gastos",         icon:"−" },
   { id:"Inversiones",  label:"Inversiones",    icon:"⊕" },
   { id:"Rentabilidad", label:"Rentabilidad",   icon:"%" },
+  { id:"Prestamos",   label:"Préstamos",      icon:"$" },
 ];
 
 export const DEFAULT_CUENTAS = [

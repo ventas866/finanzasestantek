@@ -729,6 +729,7 @@ export default function App() {
               compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones}
               transferencias={transferencias}
               retiros={retiros} rendimientos={rendimientos}
+              prestamos={prestamos}
               onTransferencia={registrarTransferencia}
               onAddCuenta={agregarCuenta}
               onRenameCuenta={renombrarCuenta}

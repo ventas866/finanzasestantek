@@ -16,6 +16,7 @@ export default function Caja({
   transferencias = [],
   retiros = [],
   rendimientos = [],
+  prestamos = [],
   onTransferencia,
   onAddCuenta,
   onRenameCuenta,
@@ -87,9 +88,18 @@ export default function Caja({
         if (r.cuentaId === cuenta.id) saldo -= r.monto;
       });
 
+      // Préstamos: entrada de dinero (+) y pagos de capital+interés (-)
+      prestamos.forEach((p) => {
+        if (p.cuentaId === cuenta.id) saldo += Number(p.monto || 0);
+        (p.pagos || []).forEach((q) => {
+          if (q.cuentaId === cuenta.id)
+            saldo -= Number(q.capital || 0) + Number(q.interes || 0);
+        });
+      });
+
       return { ...cuenta, saldoActual: saldo };
     });
-  }, [cuentas, compras, ventas, gastos, inversiones, transferencias, retiros, rendimientos]);
+  }, [cuentas, compras, ventas, gastos, inversiones, transferencias, retiros, rendimientos, prestamos]);
 
   const totalCaja = resumenCuentas.reduce((a, c) => a + c.saldoActual, 0);
 
@@ -160,8 +170,25 @@ export default function Caja({
       const detalle = [r.socio, r.nota].filter(Boolean).join(" · ");
       mov.push({ fecha:r.fecha, tipo:"Egreso", concepto:`Retiro socio${detalle ? " · "+detalle : ""}`, valor:r.monto, cuenta:cuenta?.nombre||"—", signo:"-" });
     });
+    // Préstamos: desembolso recibido + pagos
+    prestamos.forEach((p) => {
+      if (p.cuentaId) {
+        const cuenta = cuentas.find((c) => c.id === p.cuentaId);
+        mov.push({ fecha:p.fecha, tipo:"Ingreso", concepto:`Préstamo recibido: ${p.nombre}${p.destino ? " · "+p.destino : ""}`, valor:Number(p.monto||0), cuenta:cuenta?.nombre||"—", signo:"+" });
+      }
+      (p.pagos || []).forEach((q) => {
+        if (!q.cuentaId) return;
+        const cuenta = cuentas.find((c) => c.id === q.cuentaId);
+        const capital = Number(q.capital || 0);
+        const interes = Number(q.interes || 0);
+        if (capital > 0)
+          mov.push({ fecha:q.fecha, tipo:"Egreso", concepto:`Abono capital: ${p.nombre}${q.nota ? " · "+q.nota : ""}`, valor:capital, cuenta:cuenta?.nombre||"—", signo:"-" });
+        if (interes > 0)
+          mov.push({ fecha:q.fecha, tipo:"Egreso", concepto:`Pago interés: ${p.nombre}${q.nota ? " · "+q.nota : ""}`, valor:interes, cuenta:cuenta?.nombre||"—", signo:"-" });
+      });
+    });
     return mov.sort((a, b) => b.fecha.localeCompare(a.fecha));
-  }, [cuentas, compras, ventas, gastos, inversiones, transferencias, retiros, rendimientos]);
+  }, [cuentas, compras, ventas, gastos, inversiones, transferencias, retiros, rendimientos, prestamos]);
 
   function guardarTransferencia() {
     const monto = Number(trForm.monto || 0);

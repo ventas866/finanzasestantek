@@ -697,6 +697,7 @@ export default function App() {
           {pagina==="Compras"      && (
             <Compras
               compras={compras} ventas={ventas} catalogo={catalogo} cuentas={cuentas}
+              ajustes={ajustes} onAjuste={guardarAjuste}
               editingId={editingCompraId} setEditingId={setEditingCompraId}
               form={formCompra} setForm={setFormCompra}
               linea={compraLinea} setLinea={setCompraLinea}

@@ -27,8 +27,11 @@ function exportComprasCSV(compras, cuentas) {
   URL.revokeObjectURL(a.href);
 }
 
+const MOTIVOS_MERMA = ["Dañado / Defectuoso", "Regalo / Muestra", "Pérdida / Robo", "Merma de proceso", "Otro"];
+
 export default function Compras({
   compras, ventas = [], catalogo, cuentas,
+  ajustes = [], onAjuste,
   editingId, setEditingId,
   form, setForm,
   linea, setLinea,
@@ -46,6 +49,30 @@ export default function Compras({
   const [searchProv,  setSearchProv]  = useState("");
   const [filtProv,    setFiltProv]    = useState("");
   const { confirm, modal: confirmModal } = useConfirm();
+
+  // ── Mermas / bajas ────────────────────────────────────────────────────────
+  const [mermaCompraId, setMermaCompraId] = useState(null);
+  const [mermaForm, setMermaForm] = useState({ fecha: today(), sku: "", cantidad: "", motivo: MOTIVOS_MERMA[0], nota: "" });
+
+  function abrirMerma(compra) {
+    const primerItem = (compra.items || []).find((i) => !i.esLote) || compra.items?.[0];
+    setMermaForm({ fecha: today(), sku: primerItem?.sku || "", cantidad: "", motivo: MOTIVOS_MERMA[0], nota: "" });
+    setMermaCompraId(compra.id);
+  }
+
+  function guardarMerma(compra) {
+    const cant = Number(mermaForm.cantidad || 0);
+    if (!mermaForm.sku || cant <= 0) return;
+    onAjuste?.({
+      fecha:    mermaForm.fecha,
+      sku:      mermaForm.sku,
+      cantidad: -cant,           // negativo = quitar del inventario
+      motivo:   mermaForm.motivo,
+      nota:     mermaForm.nota || `Baja por compra ${compra.proveedor} ${compra.fecha}`,
+      compraId: compra.id,
+    });
+    setMermaCompraId(null);
+  }
 
   async function handleDelete(id) {
     const ok = await confirm("¿Eliminar esta compra? Esta acción no se puede deshacer.");
@@ -451,6 +478,106 @@ export default function Compras({
                                 ))}
                               </div>
                             )}
+                          </div>
+                        )}
+
+                        {/* ── Mermas vinculadas a esta compra ── */}
+                        {(() => {
+                          const mermasDeCompra = ajustes.filter((a) => a.compraId === item.id);
+                          return mermasDeCompra.length > 0 ? (
+                            <div style={{ marginTop:10, padding:"8px 10px", background:"#fff8e1", borderRadius:8, border:"1px solid #fde68a" }}>
+                              <div style={{ fontSize:11, fontWeight:700, color:"#92400e", marginBottom:5, textTransform:"uppercase", letterSpacing:".05em" }}>
+                                Bajas registradas
+                              </div>
+                              <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                                {mermasDeCompra.map((a) => (
+                                  <div key={a.id} style={{ fontSize:12, color:"#78350f", display:"flex", gap:6, alignItems:"center" }}>
+                                    <span style={{ fontFamily:"monospace", background:"#fef3c7", padding:"1px 5px", borderRadius:4 }}>{a.sku}</span>
+                                    <span style={{ fontWeight:700 }}>−{Math.abs(a.cantidad)} und</span>
+                                    <span style={{ color:"#92400e" }}>· {a.motivo}</span>
+                                    {a.nota && <span style={{ color:"#a16207", fontStyle:"italic" }}>· {a.nota}</span>}
+                                    <span style={{ color:"#b45309", marginLeft:"auto" }}>{a.fecha}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{ fontSize:11, color:"#92400e", marginTop:4, fontWeight:600 }}>
+                                Total dado de baja: {Math.abs(mermasDeCompra.reduce((a,m)=>a+m.cantidad,0))} und en {mermasDeCompra.length} ajuste{mermasDeCompra.length!==1?"s":""}
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+
+                        {/* ── Formulario de merma ── */}
+                        {mermaCompraId === item.id ? (
+                          <div style={{ marginTop:10, padding:"12px 14px", background:"#fafafa", borderRadius:10, border:"1.5px solid #e2e8f0" }}>
+                            <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:10 }}>
+                              ⬇ Registrar baja / merma
+                            </div>
+                            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+                              {/* Producto */}
+                              <div style={{ flex:2, minWidth:160 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Producto</div>
+                                <select style={{ ...selectStyle, width:"100%" }} value={mermaForm.sku}
+                                  onChange={(e) => setMermaForm({ ...mermaForm, sku: e.target.value })}>
+                                  <option value="">— Selecciona —</option>
+                                  {(item.items||[]).map((it) => (
+                                    <option key={it.id} value={it.sku}>
+                                      {it.sku} · {it.producto} ({it.cantidad} {it.esLote?"lote":"und"})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              {/* Cantidad */}
+                              <div style={{ flex:1, minWidth:110 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Cant. a dar de baja</div>
+                                <input type="number" min="1" style={{ ...inputStyle, width:"100%", boxSizing:"border-box" }}
+                                  placeholder="0" value={mermaForm.cantidad}
+                                  onChange={(e) => setMermaForm({ ...mermaForm, cantidad: e.target.value })} />
+                              </div>
+                              {/* Fecha */}
+                              <div style={{ flex:1, minWidth:120 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Fecha</div>
+                                <input type="date" style={{ ...inputStyle, width:"100%", boxSizing:"border-box" }}
+                                  value={mermaForm.fecha}
+                                  onChange={(e) => setMermaForm({ ...mermaForm, fecha: e.target.value })} />
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+                              {/* Motivo */}
+                              <div style={{ flex:2, minWidth:180 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Motivo</div>
+                                <select style={{ ...selectStyle, width:"100%" }} value={mermaForm.motivo}
+                                  onChange={(e) => setMermaForm({ ...mermaForm, motivo: e.target.value })}>
+                                  {MOTIVOS_MERMA.map((m) => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                              </div>
+                              {/* Nota */}
+                              <div style={{ flex:3, minWidth:180 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Nota (opcional)</div>
+                                <input style={{ ...inputStyle, width:"100%", boxSizing:"border-box" }}
+                                  placeholder="ej: llegaron dobladas, 3 unidades"
+                                  value={mermaForm.nota}
+                                  onChange={(e) => setMermaForm({ ...mermaForm, nota: e.target.value })} />
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", gap:8 }}>
+                              <button onClick={() => guardarMerma(item)}
+                                style={{ flex:1, background:"#dc2626", color:"white", border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                                ✓ Registrar baja
+                              </button>
+                              <button onClick={() => setMermaCompraId(null)}
+                                style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"8px 14px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ marginTop:8 }}>
+                            <button
+                              onClick={() => abrirMerma(item)}
+                              style={{ fontSize:12, fontWeight:700, color:"#dc2626", background:"#fff1f2", border:"1px solid #fecdd3", borderRadius:7, padding:"5px 12px", cursor:"pointer" }}>
+                              ⬇ Dar de baja / Merma
+                            </button>
                           </div>
                         )}
 

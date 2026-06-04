@@ -197,6 +197,22 @@ export default function Inventario({
   const [convLinea,     setConvLinea]     = useState({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
   const [editingConvId, setEditingConvId] = useState(null);
 
+  // ── Bajas de lote ────────────────────────────────────────────────────────
+  const MOTIVOS_BAJA = ["Dañado / Defectuoso", "Regalo / Muestra", "Pérdida", "Merma de proceso", "Otro"];
+  const [bajaLoteId, setBajaLoteId] = useState(null);
+  const [bajaForm,   setBajaForm]   = useState({ fecha: today(), cantidad: "", motivo: "Dañado / Defectuoso", nota: "" });
+
+  // Totales de bajas por lote (conversiones con esBaja === true)
+  const bajasPorLote = useMemo(() => {
+    const map = {};
+    conversiones.filter((c) => c.esBaja).forEach((c) => {
+      if (!map[c.loteItemId]) map[c.loteItemId] = { total: 0, count: 0 };
+      map[c.loteItemId].total += Number(c.cantidadLote || 0);
+      map[c.loteItemId].count++;
+    });
+    return map;
+  }, [conversiones]);
+
   const loteSelec     = lotesEnriquecidos.find((l) => l.id === convForm.loteItemId);
   const costoLote     = loteSelec?.costoTotal || 0;
   const costoAsignado = convForm.piezas.reduce((a, p) => a + p.cantidad * p.costoUnitario, 0);
@@ -257,6 +273,22 @@ export default function Inventario({
     setConvForm(CONV_FORM_INIT);
     setConvLinea({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
     setEditingConvId(null);
+  }
+
+  function guardarBajaLote(lote) {
+    const cant = Number(bajaForm.cantidad || 0);
+    if (cant <= 0) return;
+    onConversion({
+      fecha:        bajaForm.fecha,
+      loteItemId:   lote.id,
+      descripcion:  `Baja: ${bajaForm.motivo}${bajaForm.nota ? " · " + bajaForm.nota : ""}`,
+      cantidadLote: cant,
+      loteListo:    false,
+      piezas:       [],   // sin piezas → no suma a inventario, solo descuenta del lote
+      esBaja:       true,
+    });
+    setBajaLoteId(null);
+    setBajaForm({ fecha: today(), cantidad: "", motivo: "Dañado / Defectuoso", nota: "" });
   }
 
   // ── Tab: Transformaciones ────────────────────────────────────────────────
@@ -839,11 +871,72 @@ export default function Inventario({
                             <div style={{ height:"100%", width:`${l.pct}%`, background: l.agotado ? "#dc2626" : "#f59e0b", borderRadius:99 }} />
                           </div>
                           <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#94a3b8" }}>
-                            <span>Usadas: {l.usadas} und</span>
+                            <span>Procesadas: {l.usadas - (bajasPorLote[l.id]?.total || 0)} und</span>
+                            {bajasPorLote[l.id] && (
+                              <span style={{ color:"#dc2626", fontWeight:700 }}>⬇ Bajas: {bajasPorLote[l.id].total} und</span>
+                            )}
                             <span>Restantes: {l.restantes} und</span>
                             <span>Total: {l.cantTotal} und</span>
                           </div>
                         </div>
+                      )}
+
+                      {/* ── Dar de baja ── */}
+                      {!l.agotado && (
+                        bajaLoteId === l.id ? (
+                          <div style={{ marginTop:10, padding:"12px 14px", background:"#fff1f2", borderRadius:10, border:"1.5px solid #fecdd3" }}>
+                            <div style={{ fontWeight:700, fontSize:13, color:"#991b1b", marginBottom:8 }}>⬇ Dar de baja unidades del lote</div>
+                            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+                              <div style={{ flex:1, minWidth:100 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Fecha</div>
+                                <input type="date" style={{ ...inputStyle, width:"100%", boxSizing:"border-box" }}
+                                  value={bajaForm.fecha}
+                                  onChange={(e) => setBajaForm({ ...bajaForm, fecha: e.target.value })} />
+                              </div>
+                              <div style={{ flex:1, minWidth:120 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Cantidad a dar de baja</div>
+                                <input type="number" min="1" max={l.restantes}
+                                  style={{ ...inputStyle, width:"100%", boxSizing:"border-box" }}
+                                  placeholder={`Máx. ${l.restantes}`}
+                                  value={bajaForm.cantidad}
+                                  onChange={(e) => setBajaForm({ ...bajaForm, cantidad: e.target.value })} />
+                              </div>
+                              <div style={{ flex:2, minWidth:160 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Motivo</div>
+                                <select style={{ ...selectStyle, width:"100%", boxSizing:"border-box" }}
+                                  value={bajaForm.motivo}
+                                  onChange={(e) => setBajaForm({ ...bajaForm, motivo: e.target.value })}>
+                                  {MOTIVOS_BAJA.map((m) => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                              </div>
+                              <div style={{ flex:2, minWidth:160 }}>
+                                <div style={{ fontSize:11, fontWeight:600, color:"#64748b", marginBottom:3 }}>Nota (opcional)</div>
+                                <input style={{ ...inputStyle, width:"100%", boxSizing:"border-box" }}
+                                  placeholder="ej: llegaron dobladas, filo roto"
+                                  value={bajaForm.nota}
+                                  onChange={(e) => setBajaForm({ ...bajaForm, nota: e.target.value })} />
+                              </div>
+                            </div>
+                            <div style={{ display:"flex", gap:8 }}>
+                              <button onClick={() => guardarBajaLote(l)}
+                                style={{ flex:1, background:"#dc2626", color:"white", border:"none", borderRadius:8, padding:"8px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                                ✓ Registrar baja
+                              </button>
+                              <button onClick={() => setBajaLoteId(null)}
+                                style={{ background:"#f1f5f9", color:"#475569", border:"none", borderRadius:8, padding:"8px 14px", fontWeight:700, cursor:"pointer", fontSize:13 }}>
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ marginTop:8 }}>
+                            <button
+                              onClick={() => { setBajaLoteId(l.id); setBajaForm({ fecha: today(), cantidad: "", motivo: "Dañado / Defectuoso", nota: "" }); }}
+                              style={{ fontSize:12, fontWeight:700, color:"#dc2626", background:"#fff1f2", border:"1px solid #fecdd3", borderRadius:7, padding:"5px 12px", cursor:"pointer" }}>
+                              ⬇ Dar de baja
+                            </button>
+                          </div>
+                        )
                       )}
                     </div>
                   ))}
@@ -852,7 +945,7 @@ export default function Inventario({
             )}
 
             {/* Historial de conversiones */}
-            <Panel title={`Conversiones registradas (${conversiones.length})`}>
+            <Panel title={`Conversiones registradas (${conversiones.filter(c=>!c.esBaja).length}) · Bajas (${conversiones.filter(c=>c.esBaja).length})`}>
               {conversiones.length === 0 ? (
                 <EmptyState icon="✂️" text="Sin conversiones. Registra el primer corte de material." />
               ) : (
@@ -861,8 +954,25 @@ export default function Inventario({
                     const lote = lotesEnriquecidos.find((l) => l.id === conv.loteItemId);
                     const totalPiezas = (conv.piezas||[]).reduce((a,p) => a + p.cantidad * p.costoUnitario, 0);
                     const isEditingThis = editingConvId === conv.id;
-                    // Detectar piezas cuyo SKU ya no existe en el catálogo
                     const piezasHuerfanas = (conv.piezas||[]).filter((p) => !catalogo.find((i) => i.sku === p.sku));
+
+                    // ── Baja de lote: vista especial ──
+                    if (conv.esBaja) return (
+                      <div key={conv.id} style={{ background:"#fff1f2", borderRadius:10, border:"1px solid #fecdd3", padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
+                        <span style={{ fontSize:18, flexShrink:0 }}>⬇</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:700, color:"#991b1b" }}>{conv.descripcion || "Baja de lote"}</div>
+                          <div style={{ fontSize:12, color:"#b91c1c", marginTop:2 }}>
+                            {conv.fecha} · {lote?.nombreLibre || lote?.sku || "—"} ·
+                            <span style={{ marginLeft:6, fontWeight:700 }}>{conv.cantidadLote} und dados de baja</span>
+                          </div>
+                        </div>
+                        <DeleteBtn onClick={() => {
+                          if (window.confirm("¿Eliminar esta baja? Las unidades volverán al lote.")) onDeleteConversion(conv.id);
+                        }} />
+                      </div>
+                    );
+
                     return (
                       <div key={conv.id} style={{ background: isEditingThis ? "#fff8e1" : "#f8fafc", borderRadius:10,
                              border: isEditingThis ? "1.5px solid #ffd54f" : "1px solid #e2e8f0", padding:"12px 14px" }}>

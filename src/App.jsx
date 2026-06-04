@@ -226,12 +226,11 @@ export default function App() {
   }
 
   function pagarProveedor(compraId, pago) {
-    setCompras((prev) => prev.map((c) => {
-      if (c.id !== compraId) return c;
-      const next = { ...c, pagosProv: [...(c.pagosProv||[]), { id:uid(), ...pago }] };
-      dbSave("compras", next);
-      return next;
-    }));
+    const compraActual = compras.find((c) => c.id === compraId);
+    if (!compraActual) return;
+    const actualizada = { ...compraActual, pagosProv: [...(compraActual.pagosProv || []), { id: uid(), ...pago }] };
+    setCompras((prev) => prev.map((c) => c.id === compraId ? actualizada : c));
+    dbSave("compras", actualizada);
   }
 
   // ── Ventas ────────────────────────────────────────────────────────────────
@@ -511,54 +510,47 @@ export default function App() {
   }
 
   // ── Cartera ───────────────────────────────────────────────────────────────
+  // Patrón correcto: calcular el objeto actualizado FUERA del state updater,
+  // luego actualizar estado y guardar en DB sin side-effects en el updater.
   function registrarAbono(ventaId, abono) {
-    setVentas((p) => p.map((v) => {
-      if (v.id!==ventaId) return v;
-      const next = { ...v, abonos:[...(v.abonos||[]),abono] };
-      dbSave("ventas", next);
-      return next;
-    }));
+    const ventaActual = ventas.find((v) => v.id === ventaId);
+    if (!ventaActual) return;
+    const actualizada = { ...ventaActual, abonos: [...(ventaActual.abonos || []), abono] };
+    setVentas((p) => p.map((v) => v.id === ventaId ? actualizada : v));
+    dbSave("ventas", actualizada);
   }
 
   function pagarProveedorReventa(ventaId, pago) {
-    const nuevoPago = { id:uid(), ...pago };
-    let ventaActualizada = null;
-    setVentas((prev) => {
-      const next = prev.map((v) => {
-        if (v.id !== ventaId) return v;
-        ventaActualizada = { ...v, pagosProvReventa: [...(v.pagosProvReventa||[]), nuevoPago] };
-        return ventaActualizada;
-      });
-      return next;
-    });
-    setTimeout(() => { if (ventaActualizada) dbSave("ventas", ventaActualizada); }, 0);
+    const ventaActual = ventas.find((v) => v.id === ventaId);
+    if (!ventaActual) return;
+    const nuevoPago   = { id: uid(), ...pago };
+    const actualizada = { ...ventaActual, pagosProvReventa: [...(ventaActual.pagosProvReventa || []), nuevoPago] };
+    setVentas((prev) => prev.map((v) => v.id === ventaId ? actualizada : v));
+    dbSave("ventas", actualizada);
   }
 
   function editarPagoProvReventa(ventaId, pagoId, updatedPago) {
-    setVentas((prev) => prev.map((v) => {
-      if (v.id !== ventaId) return v;
-      const next = { ...v, pagosProvReventa: (v.pagosProvReventa||[]).map((p) => p.id === pagoId ? { ...p, ...updatedPago } : p) };
-      dbSave("ventas", next);
-      return next;
-    }));
+    const ventaActual = ventas.find((v) => v.id === ventaId);
+    if (!ventaActual) return;
+    const actualizada = { ...ventaActual, pagosProvReventa: (ventaActual.pagosProvReventa || []).map((p) => p.id === pagoId ? { ...p, ...updatedPago } : p) };
+    setVentas((prev) => prev.map((v) => v.id === ventaId ? actualizada : v));
+    dbSave("ventas", actualizada);
   }
 
   function eliminarPagoProvReventa(ventaId, pagoId) {
-    setVentas((prev) => prev.map((v) => {
-      if (v.id !== ventaId) return v;
-      const next = { ...v, pagosProvReventa: (v.pagosProvReventa||[]).filter((p) => p.id !== pagoId) };
-      dbSave("ventas", next);
-      return next;
-    }));
+    const ventaActual = ventas.find((v) => v.id === ventaId);
+    if (!ventaActual) return;
+    const actualizada = { ...ventaActual, pagosProvReventa: (ventaActual.pagosProvReventa || []).filter((p) => p.id !== pagoId) };
+    setVentas((prev) => prev.map((v) => v.id === ventaId ? actualizada : v));
+    dbSave("ventas", actualizada);
   }
 
   function eliminarAbono(ventaId, abonoId) {
-    setVentas((prev) => prev.map((v) => {
-      if (v.id !== ventaId) return v;
-      const next = { ...v, abonos: (v.abonos||[]).filter((a) => a.id !== abonoId) };
-      dbSave("ventas", next);
-      return next;
-    }));
+    const ventaActual = ventas.find((v) => v.id === ventaId);
+    if (!ventaActual) return;
+    const actualizada = { ...ventaActual, abonos: (ventaActual.abonos || []).filter((a) => a.id !== abonoId) };
+    setVentas((prev) => prev.map((v) => v.id === ventaId ? actualizada : v));
+    dbSave("ventas", actualizada);
   }
 
   // ── Loading / error screens ───────────────────────────────────────────────

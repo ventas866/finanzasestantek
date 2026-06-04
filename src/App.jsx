@@ -259,7 +259,8 @@ export default function App() {
       formaPago, pagos: ventaPagos,
       cuentaId: ventaPagos.length===1&&formaPago==="Contado" ? ventaPagos[0].cuentaId : null,
       items: ventaItems, subtotal, total, costoTotal, costoReventa, utilidad: total - costoTotal,
-      abonos: editingVentaId ? (ventas.find((v)=>v.id===editingVentaId)?.abonos||[]) : [],
+      abonos:           editingVentaId ? (ventas.find((v)=>v.id===editingVentaId)?.abonos||[])           : [],
+      pagosProvReventa: editingVentaId ? (ventas.find((v)=>v.id===editingVentaId)?.pagosProvReventa||[]) : [],
     };
     setVentas((p) => editingVentaId ? p.map((x)=>x.id===editingVentaId?venta:x) : [venta,...p]);
     dbSave("ventas", venta);

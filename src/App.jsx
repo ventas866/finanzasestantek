@@ -452,18 +452,32 @@ export default function App() {
   }
 
   // ── Préstamos ─────────────────────────────────────────────────────────────
-  function guardarPrestamo(prestamo) {
+  async function guardarPrestamo(prestamo) {
+    const esNuevo = !prestamos.find((x) => x.id === prestamo.id);
     setPrestamos((p) =>
-      p.find((x) => x.id === prestamo.id)
-        ? p.map((x) => (x.id === prestamo.id ? prestamo : x))
-        : [prestamo, ...p]
+      esNuevo
+        ? [prestamo, ...p]
+        : p.map((x) => (x.id === prestamo.id ? prestamo : x))
     );
-    dbSave("prestamos", prestamo);
+    try {
+      await dbSave("prestamos", prestamo);
+    } catch (e) {
+      // Revertir si Supabase falló
+      if (esNuevo) setPrestamos((p) => p.filter((x) => x.id !== prestamo.id));
+      else setPrestamos((p) => p); // deja el estado anterior (ya fue reemplazado)
+      alert(`⚠ Error al guardar préstamo:\n${e.message}\n\nVerifica que la tabla "prestamos" existe en Supabase con columnas: id (text PK), fecha (text), data (jsonb).`);
+    }
   }
 
-  function eliminarPrestamo(id) {
+  async function eliminarPrestamo(id) {
+    const anterior = prestamos.find((x) => x.id === id);
     setPrestamos((p) => p.filter((x) => x.id !== id));
-    dbDelete("prestamos", id);
+    try {
+      await dbDelete("prestamos", id);
+    } catch (e) {
+      if (anterior) setPrestamos((p) => [anterior, ...p]);
+      alert(`⚠ Error al eliminar préstamo:\n${e.message}`);
+    }
   }
 
   function guardarProductoExtra(prod) {

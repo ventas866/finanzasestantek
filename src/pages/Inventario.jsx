@@ -202,8 +202,9 @@ export default function Inventario({
   }), [lotes, usadosPorLote]);
 
   const CONV_FORM_INIT = { fecha: today(), loteItemId: "", descripcion: "", cantidadLote: "", loteListo: false, piezas: [] };
+  const CONV_LINEA_INIT = { sku: "", cantidad: "", costoUnitario: "", descPieza: "", pct: "" };
   const [convForm,      setConvForm]      = useState(CONV_FORM_INIT);
-  const [convLinea,     setConvLinea]     = useState({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
+  const [convLinea,     setConvLinea]     = useState(CONV_LINEA_INIT);
   const [editingConvId, setEditingConvId] = useState(null);
 
   // ── Bajas de lote ────────────────────────────────────────────────────────
@@ -225,15 +226,26 @@ export default function Inventario({
   const loteSelec     = lotesEnriquecidos.find((l) => l.id === convForm.loteItemId);
   const costoLote     = loteSelec?.costoTotal || 0;
   const costoAsignado = convForm.piezas.reduce((a, p) => a + p.cantidad * p.costoUnitario, 0);
-  // Costo sugerido para las piezas según unidades a procesar
+  // Costo total del material que se va a procesar en este corte
   const costoProcesar = loteSelec && Number(convForm.cantidadLote) > 0
     ? Number(convForm.cantidadLote) * (loteSelec.costoUnit || 0)
     : null;
+  // % ya asignado a piezas existentes → el nuevo ítem arranca con el restante
+  const pctAsignado  = convForm.piezas.reduce((a, p) => a + Number(p.pct || 0), 0);
+  const pctRestante  = Math.max(0, 100 - pctAsignado);
+
+  // Recalcula costoUnitario a partir de costoProcesar, % y cantidad
+  function calcCostoLinea(pct, cantidad) {
+    if (!costoProcesar || Number(cantidad) <= 0) return "";
+    const fraccion = Number(pct) > 0 ? Number(pct) / 100 : pctRestante / 100;
+    return String(Math.round(costoProcesar * fraccion / Number(cantidad)));
+  }
 
   function agregarPiezaConv() {
     const sku   = convLinea.sku;
     const cant  = Number(convLinea.cantidad || 0);
-    const costo = Number(convLinea.costoUnitario || 0);
+    const pct   = Number(convLinea.pct || pctRestante || 100);
+    const costo = Number(convLinea.costoUnitario || calcCostoLinea(pct, cant) || 0);
     if (!sku || cant <= 0) return;
     const info = catalogo.find((i) => i.sku === sku);
     setConvForm((prev) => ({
@@ -242,10 +254,12 @@ export default function Inventario({
         id: uid(), sku,
         producto: info?.nombre || sku,
         cantidad: cant, costoUnitario: costo,
+        pct,
         descPieza: convLinea.descPieza,
       }],
     }));
-    setConvLinea({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
+    // Reset linea; el nuevo % restante se calcula solo desde piezas
+    setConvLinea(CONV_LINEA_INIT);
   }
 
   function guardarConversion() {
@@ -280,7 +294,7 @@ export default function Inventario({
 
   function cancelarConversion() {
     setConvForm(CONV_FORM_INIT);
-    setConvLinea({ sku: "", cantidad: "", costoUnitario: "", descPieza: "" });
+    setConvLinea(CONV_LINEA_INIT);
     setEditingConvId(null);
   }
 
@@ -748,38 +762,110 @@ export default function Inventario({
 
                 {/* Agregar piezas de salida */}
                 <div style={{ border:"1.5px solid #e2e8f0", borderRadius:10, padding:14 }}>
-                  <div style={{ fontWeight:700, fontSize:13, color:"#0f172a", marginBottom:12 }}>
-                    ➕ Productos obtenidos del corte
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, flexWrap:"wrap", gap:8 }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:"#0f172a" }}>
+                      ➕ Productos obtenidos del corte
+                    </div>
+                    {convForm.piezas.length > 0 && (
+                      <div style={{ fontSize:12, display:"flex", gap:10, alignItems:"center" }}>
+                        <span style={{ color:"#64748b" }}>
+                          % asignado: <strong>{pctAsignado}%</strong>
+                        </span>
+                        <span style={{
+                          fontWeight:700, fontSize:11, padding:"2px 8px", borderRadius:10,
+                          background: pctRestante === 0 ? "#d1fae5" : pctRestante < 0 ? "#fee2e2" : "#fff7ed",
+                          color:      pctRestante === 0 ? "#065f46" : pctRestante < 0 ? "#991b1b" : "#92400e",
+                        }}>
+                          {pctRestante === 0 ? "✓ 100% distribuido" : pctRestante < 0 ? `⚠ +${Math.abs(pctRestante)}% excedido` : `${pctRestante}% restante`}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-                    <div style={{ gridColumn:"1/-1" }}>
-                      <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Producto del catálogo (SKU de salida)</div>
-                      <select style={selectStyle} value={convLinea.sku}
-                        onChange={(e) => setConvLinea({ ...convLinea, sku: e.target.value })}>
-                        <option value="">— Selecciona el producto resultante —</option>
-                        {catalogo.filter((i) => i.tipo !== "Servicio").map((i) => (
-                          <option key={i.sku} value={i.sku}>{i.sku} · {i.nombre} ({i.tipo})</option>
-                        ))}
-                      </select>
-                    </div>
+
+                  {/* SKU */}
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Producto del catálogo (SKU de salida)</div>
+                    <select style={selectStyle} value={convLinea.sku}
+                      onChange={(e) => setConvLinea({ ...convLinea, sku: e.target.value })}>
+                      <option value="">— Selecciona el producto resultante —</option>
+                      {catalogo.filter((i) => i.tipo !== "Servicio").map((i) => (
+                        <option key={i.sku} value={i.sku}>{i.sku} · {i.nombre} ({i.tipo})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:10 }}>
+                    {/* % del costo */}
                     <div>
-                      <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Cantidad</div>
-                      <input type="number" style={inputStyle} placeholder="Ej: 240" value={convLinea.cantidad}
-                        onChange={(e) => setConvLinea({ ...convLinea, cantidad: e.target.value })} />
+                      <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>
+                        % del costo
+                        {pctRestante > 0 && pctRestante < 100 && (
+                          <button
+                            onClick={() => {
+                              const pct = pctRestante;
+                              const cant = Number(convLinea.cantidad || 0);
+                              setConvLinea({ ...convLinea, pct: String(pct), costoUnitario: calcCostoLinea(pct, cant) });
+                            }}
+                            style={{ marginLeft:6, fontSize:10, background:"#e0f2fe", color:"#0369a1", border:"none", borderRadius:4, padding:"1px 6px", cursor:"pointer", fontWeight:700 }}>
+                            {pctRestante}% restante
+                          </button>
+                        )}
+                      </div>
+                      <input type="number" style={inputStyle} min="1" max="100"
+                        placeholder={`${pctRestante > 0 ? pctRestante : 100}%`}
+                        value={convLinea.pct}
+                        onChange={(e) => {
+                          const pct  = e.target.value;
+                          const cant = Number(convLinea.cantidad || 0);
+                          setConvLinea({ ...convLinea, pct, costoUnitario: calcCostoLinea(pct, cant) });
+                        }} />
                     </div>
+
+                    {/* Cantidad */}
                     <div>
-                      <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Costo unitario</div>
+                      <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Cantidad und</div>
+                      <input type="number" style={inputStyle} placeholder="Ej: 4" value={convLinea.cantidad}
+                        onChange={(e) => {
+                          const cantidad = e.target.value;
+                          const pct      = convLinea.pct || pctRestante;
+                          setConvLinea({ ...convLinea, cantidad, costoUnitario: calcCostoLinea(pct, cantidad) });
+                        }} />
+                    </div>
+
+                    {/* Costo unitario (auto-calculado) */}
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>
+                        Costo unitario
+                        {costoProcesar && Number(convLinea.cantidad) > 0 && (
+                          <span style={{ marginLeft:4, fontSize:10, color:"#059669" }}>● auto</span>
+                        )}
+                      </div>
                       <input type="number" style={inputStyle}
-                        placeholder={loteSelec?.costoUnit > 0 ? `Sugerido: ${Math.round(loteSelec.costoUnit)}` : "0"}
+                        placeholder="0"
                         value={convLinea.costoUnitario}
                         onChange={(e) => setConvLinea({ ...convLinea, costoUnitario: e.target.value })} />
                     </div>
-                    <div style={{ gridColumn:"1/-1" }}>
-                      <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Descripción de la pieza (opcional)</div>
-                      <input style={inputStyle} placeholder="Ej: 60cm de largo, 40cm sobrante..." value={convLinea.descPieza}
-                        onChange={(e) => setConvLinea({ ...convLinea, descPieza: e.target.value })} />
-                    </div>
                   </div>
+
+                  {/* Preview del costo total de esta pieza */}
+                  {Number(convLinea.costoUnitario) > 0 && Number(convLinea.cantidad) > 0 && (
+                    <div style={{ fontSize:12, color:"#0369a1", background:"#f0f9ff", borderRadius:6, padding:"5px 10px", marginBottom:10 }}>
+                      Total esta pieza: <strong>{money(Math.round(Number(convLinea.costoUnitario) * Number(convLinea.cantidad)))}</strong>
+                      {costoProcesar && (
+                        <span style={{ marginLeft:8, color:"#64748b" }}>
+                          ({Math.round((Number(convLinea.costoUnitario) * Number(convLinea.cantidad) / costoProcesar) * 100)}% del costo del corte)
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Descripción */}
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:"#616161", marginBottom:4 }}>Descripción de la pieza (opcional)</div>
+                    <input style={inputStyle} placeholder="Ej: 60cm de largo, 40cm sobrante..." value={convLinea.descPieza}
+                      onChange={(e) => setConvLinea({ ...convLinea, descPieza: e.target.value })} />
+                  </div>
+
                   <button
                     style={{ ...pill, background: convLinea.sku && Number(convLinea.cantidad)>0 ? "#f97316" : "#e2e8f0",
                       borderColor: convLinea.sku && Number(convLinea.cantidad)>0 ? "#f97316" : "#e2e8f0",
@@ -802,6 +888,11 @@ export default function Inventario({
                           <div style={{ fontSize:13, display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
                             <span style={{ fontFamily:"monospace", fontSize:12, color:"#4338ca", background:"#e0e7ff", borderRadius:4, padding:"1px 6px" }}>{p.sku}</span>
                             <span style={{ fontWeight:600 }}>{p.producto}</span>
+                            {p.pct != null && p.pct !== 100 && (
+                              <span style={{ fontSize:11, fontWeight:700, background:"#fff7ed", color:"#92400e", borderRadius:4, padding:"1px 6px" }}>
+                                {p.pct}%
+                              </span>
+                            )}
                             {p.descPieza && <span style={{ fontSize:12, color:"#64748b", background:"#f1f5f9", borderRadius:4, padding:"1px 6px" }}>{p.descPieza}</span>}
                           </div>
                           <div style={{ fontSize:12, color:"#64748b", marginTop:3 }}>

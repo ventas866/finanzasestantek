@@ -703,7 +703,7 @@ export default function Inventario({
                       {lotesEnriquecidos.map((l) => (
                         <option key={l.id} value={l.id} disabled={l.agotado}>
                           {l.agotado ? "✓ " : ""}{l.compraFecha} · {l.proveedor} · {l.nombreLibre || l.skuLibre || l.sku}
-                          {l.cantTotal > 0 ? ` · ${l.restantes}/${l.cantTotal} und` : ""}
+                          {l.cantTotal > 0 ? ` · ${l.restantes}/${l.cantTotal - l.cantBajas} und` : ""}
                           {l.costoTotal > 0 ? ` · ${money(l.costoTotal)}` : ""}
                           {l.agotado ? " [AGOTADO]" : ""}
                         </option>
@@ -745,9 +745,11 @@ export default function Inventario({
                     {loteSelec.cantTotal > 0 && (
                       <>
                         <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"#92400e", marginBottom:4 }}>
-                          <span>Usadas: <strong>{loteSelec.usadas} und</strong></span>
+                          <span>Procesadas: <strong>{loteSelec.usadas - loteSelec.cantBajas} und</strong></span>
                           <span>Disponibles: <strong style={{ color: loteSelec.restantes > 0 ? "#059669" : "#dc2626" }}>{loteSelec.restantes} und</strong></span>
-                          <span>Total: <strong>{loteSelec.cantTotal} und</strong></span>
+                          <span>Útiles: <strong>{loteSelec.cantTotal - loteSelec.cantBajas} und</strong>
+                            {loteSelec.cantBajas > 0 && <span style={{ color:"#dc2626", fontWeight:400, marginLeft:3 }}>({loteSelec.cantBajas} bajas)</span>}
+                          </span>
                         </div>
                         <div style={{ height:8, background:"#fde68a", borderRadius:99 }}>
                           <div style={{ height:"100%", width:`${loteSelec.pct}%`, background: loteSelec.agotado ? "#dc2626" : "#f59e0b", borderRadius:99, transition:"width .4s" }} />
@@ -1007,7 +1009,7 @@ export default function Inventario({
                               <span style={{ color:"#dc2626", fontWeight:700 }}>⬇ Bajas: {bajasPorLote[l.id].total} und</span>
                             )}
                             <span>Restantes: {l.restantes} und</span>
-                            <span>Total: {l.cantTotal} und</span>
+                            <span>Útiles: {l.cantTotal - l.cantBajas} und</span>
                           </div>
                           {l.cantBajas > 0 && (
                             <div style={{ marginTop:5, fontSize:11, color:"#92400e", background:"#fef3c7", borderRadius:6, padding:"4px 8px" }}>

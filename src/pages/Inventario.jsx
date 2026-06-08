@@ -196,10 +196,17 @@ export default function Inventario({
     const usadas    = info.usadas;
     const restantes = Math.max(0, cantTotal - usadas);
     const pct       = cantTotal > 0 ? Math.min(100, (usadas / cantTotal) * 100) : 0;
-    const costoUnit = cantTotal > 0 ? l.costoTotal / cantTotal : 0;
-    const agotado   = info.agotado || (cantTotal > 0 && restantes <= 0);
-    return { ...l, cantTotal, usadas, restantes, pct, costoUnit, agotado };
-  }), [lotes, usadosPorLote]);
+    // Bajas: su costo se absorbe en las unidades aprovechables.
+    // costoUnit = costoTotal / (cantTotal - bajas) → el costo de las unidades dañadas
+    // queda distribuido entre las unidades que sí se pueden convertir y vender.
+    const cantBajas      = conversiones
+      .filter((c) => c.esBaja && c.loteItemId === l.id)
+      .reduce((a, c) => a + Number(c.cantidadLote || 0), 0);
+    const unidadesUtiles = Math.max(1, cantTotal - cantBajas);
+    const costoUnit      = l.costoTotal / unidadesUtiles;
+    const agotado        = info.agotado || (cantTotal > 0 && restantes <= 0);
+    return { ...l, cantTotal, usadas, restantes, pct, costoUnit, agotado, cantBajas };
+  }), [lotes, usadosPorLote, conversiones]);
 
   const CONV_FORM_INIT = { fecha: today(), loteItemId: "", descripcion: "", cantidadLote: "", loteListo: false, piezas: [] };
   const CONV_LINEA_INIT = { sku: "", cantidad: "", costoUnitario: "", descPieza: "", pct: "" };
@@ -414,27 +421,46 @@ export default function Inventario({
     setProdForm({ sku:"", nombre:"", categoria:"Otro", tipo:"Inventario propio", unidad:"und", costoBase:"", precioVenta:"" });
   }
 
+  // ── Valor de lotes pendientes de conversión ──────────────────────────────
+  // Los lotes son capital invertido que todavía no tiene precio de venta.
+  // Se suman al costo total y al valor de venta al mismo valor (margen 0),
+  // para que no inflen ni desinflen el margen del inventario terminado.
+  const costoLotesRestantes = lotesEnriquecidos
+    .filter((l) => !l.agotado && l.restantes > 0)
+    .reduce((a, l) => a + l.restantes * l.costoUnit, 0);
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
       <SectionHeader
         title="Inventario"
-        subtitle={`${catalogo.filter((i)=>i.stock>0).length} productos con stock · costo ${money(catalogo.reduce((a,i)=>a+i.stock*i.costo,0))} · venta est. ${money(catalogo.reduce((a,i)=>a+i.stock*(i.precioVenta||0),0))}`}
+        subtitle={`${catalogo.filter((i)=>i.stock>0).length} productos con stock · costo ${money(catalogo.reduce((a,i)=>a+i.stock*i.costo,0) + costoLotesRestantes)} · venta est. ${money(catalogo.reduce((a,i)=>a+i.stock*(i.precioVenta||0),0) + costoLotesRestantes)}`}
       />
 
       {/* KPIs de inventario */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12 }}>
-        <InvKpi label="Valor @ costo" value={money(catalogo.reduce((a,i)=>a+i.stock*i.costo,0))} sub="Lo que costó" color="#ef4444" />
-        <InvKpi label="Valor @ venta" value={money(catalogo.reduce((a,i)=>a+i.stock*(i.precioVenta||0),0))} sub="Potencial de venta" color="#10b981" />
-        <InvKpi label="Margen potencial"
-          value={(() => {
-            const c = catalogo.reduce((a,i)=>a+i.stock*i.costo,0);
-            const v = catalogo.reduce((a,i)=>a+i.stock*(i.precioVenta||0),0);
-            return v > 0 ? `${(((v-c)/v)*100).toFixed(1)}%` : "—";
-          })()}
-          sub="Del inventario con stock" color="#6366f1" />
-        <InvKpi label="Sin precio" value={`${catalogo.filter((i)=>i.stock>0&&(!i.precioVenta||i.precioVenta===0)).length} SKUs`} sub="Definir precio de venta" color="#f59e0b" />
-      </div>
+      {(() => {
+        const costoProductos = catalogo.reduce((a,i)=>a+i.stock*i.costo,0);
+        const ventaProductos = catalogo.reduce((a,i)=>a+i.stock*(i.precioVenta||0),0);
+        const costoTotal     = costoProductos + costoLotesRestantes;
+        // Venta: productos al precio real + lotes al costo (margen 0, aún no convertidos)
+        const ventaTotal     = ventaProductos + costoLotesRestantes;
+        // Margen solo sobre productos con precio (los lotes son neutros)
+        const margen         = ventaProductos > 0 ? (((ventaProductos - costoProductos) / ventaProductos) * 100).toFixed(1) : null;
+        const lotesLabel     = costoLotesRestantes > 0
+          ? `incl. ${money(Math.round(costoLotesRestantes))} en lotes`
+          : "Lo que costó";
+        return (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12 }}>
+            <InvKpi label="Valor @ costo" value={money(Math.round(costoTotal))} sub={lotesLabel} color="#ef4444" />
+            <InvKpi label="Valor @ venta" value={money(Math.round(ventaTotal))}
+              sub={costoLotesRestantes > 0 ? "Lotes al costo · prod. al precio" : "Potencial de venta"} color="#10b981" />
+            <InvKpi label="Margen potencial"
+              value={margen !== null ? `${margen}%` : "—"}
+              sub="Solo productos terminados" color="#6366f1" />
+            <InvKpi label="Sin precio" value={`${catalogo.filter((i)=>i.stock>0&&(!i.precioVenta||i.precioVenta===0)).length} SKUs`} sub="Definir precio de venta" color="#f59e0b" />
+          </div>
+        );
+      })()}
 
       {/* Tabs */}
       <div style={{ display:"flex", gap:0, borderBottom:"2px solid #e2e8f0", flexWrap:"wrap" }}>
@@ -705,6 +731,11 @@ export default function Inventario({
                         {loteSelec.costoUnit > 0 && (
                           <div style={{ fontSize:12, color:"#92400e" }}>
                             {money(Math.round(loteSelec.costoUnit))}/und
+                            {loteSelec.cantBajas > 0 && (
+                              <span style={{ marginLeft:6, fontSize:10, color:"#dc2626", fontWeight:600 }}>
+                                ⚠ incluye absorción de {loteSelec.cantBajas} und dadas de baja
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -978,6 +1009,14 @@ export default function Inventario({
                             <span>Restantes: {l.restantes} und</span>
                             <span>Total: {l.cantTotal} und</span>
                           </div>
+                          {l.cantBajas > 0 && (
+                            <div style={{ marginTop:5, fontSize:11, color:"#92400e", background:"#fef3c7", borderRadius:6, padding:"4px 8px" }}>
+                              💡 Costo ajustado por bajas: <strong>{money(Math.round(l.costoUnit))}/und</strong>
+                              <span style={{ color:"#94a3b8", marginLeft:4 }}>
+                                (el costo de {l.cantBajas} und dadas de baja se prorrateó entre las {l.cantTotal - l.cantBajas} und aprovechables)
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
 

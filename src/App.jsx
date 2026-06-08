@@ -288,12 +288,11 @@ export default function App() {
     const valor = Number(formGasto.valor || 0);
     if (valor <= 0) return;
     if (editingGastoId) {
-      setGastos((p) => {
-        const updated = p.map((g)=>g.id===editingGastoId?{...g,...formGasto,valor}:g);
-        const gasto = updated.find((g)=>g.id===editingGastoId);
-        if (gasto) dbSave("gastos", gasto);
-        return updated;
-      });
+      const gastoActual = gastos.find((g) => g.id === editingGastoId);
+      if (!gastoActual) return;
+      const actualizado = { ...gastoActual, ...formGasto, valor };
+      setGastos((p) => p.map((g) => g.id === editingGastoId ? actualizado : g));
+      dbSave("gastos", actualizado);
       setEditingGastoId(null);
     } else {
       const gasto = { id:uid(), ...formGasto, valor };

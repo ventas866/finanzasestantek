@@ -32,12 +32,20 @@ export function buildInventory(
 
   // Compras → aumentan stock
   for (const compra of compras) {
+    const fleteComp    = Number(compra.flete    || 0);
+    const subtotalComp = Number(compra.subtotal || 0);
     for (const linea of compra.items || []) {
       if (linea.esLote) continue;
       const actual = map.get(linea.sku);
       if (!actual) continue;
-      const cantNueva  = Number(linea.cantidad || 0);
-      const costoNuevo = Number(linea.costoUnitario || 0);
+      const cantNueva     = Number(linea.cantidad || 0);
+      const costoBase     = Number(linea.costoUnitario || 0);
+      // Prorate flete proportionally by item subtotal → landed cost
+      const subtotalLinea = Number(linea.subtotal || cantNueva * costoBase);
+      const fleteUnit     = (fleteComp > 0 && subtotalComp > 0 && cantNueva > 0)
+        ? fleteComp * subtotalLinea / subtotalComp / cantNueva
+        : 0;
+      const costoNuevo    = costoBase + fleteUnit;
       const nuevoStock = actual.stock + cantNueva;
       // Si stock previo era ≤ 0 (vendido antes de comprar), el costo es el nuevo precio
       // Si ambos positivos, promedio ponderado

@@ -450,9 +450,25 @@ export default function Compras({
 
                         {/* Ítems */}
                         <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:10 }}>
-                          {(item.items||[]).map((x) => (
-                            <SkuPill key={x.id} label={`${x.sku} ×${x.cantidad}${x.esLote?" (lote)":""}`} />
-                          ))}
+                          {(item.items||[]).map((x) => {
+                            const subtotalX = Number(x.subtotal || x.cantidad * x.costoUnitario || 0);
+                            const subtotalC = Number(item.subtotal || 0);
+                            const fleteC    = Number(item.flete || 0);
+                            const fleteUnit = (fleteC > 0 && subtotalC > 0 && Number(x.cantidad||1) > 0)
+                              ? fleteC * subtotalX / subtotalC / Number(x.cantidad||1)
+                              : 0;
+                            const costoLanded = x.costoUnitario + fleteUnit;
+                            return (
+                              <div key={x.id} style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                                <SkuPill label={`${x.sku} ×${x.cantidad}${x.esLote?" (lote)":""}`} />
+                                {fleteUnit > 0 && (
+                                  <span style={{ fontSize:10, color:"#64748b", paddingLeft:2 }}>
+                                    {money(x.costoUnitario)}/und base · <strong style={{ color:"#0369a1" }}>{money(Math.round(costoLanded))}/und c/flete</strong>
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
 
                         {/* Barra progreso pago proveedor */}

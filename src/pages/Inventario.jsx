@@ -161,14 +161,23 @@ export default function Inventario({
   const stockDespues  = itemActual ? itemActual.stock + Number(ajForm.cantidad || 0) : 0;
 
   // ── Tab 3: Conversiones ──────────────────────────────────────────────────
-  const lotes = useMemo(() => compras.flatMap((c) =>
-    (c.items || [])
+  const lotes = useMemo(() => compras.flatMap((c) => {
+    const fleteComp    = Number(c.flete    || 0);
+    const subtotalComp = Number(c.subtotal || 0);
+    return (c.items || [])
       .filter((i) => i.esLote)
-      .map((i) => ({
-        ...i, compraId: c.id, proveedor: c.proveedor, compraFecha: c.fecha,
-        costoTotal: Number(i.subtotal || (Number(i.cantidad||1) * Number(i.costoUnitario||0))),
-      }))
-  ), [compras]);
+      .map((i) => {
+        const subtotalItem  = Number(i.subtotal || (Number(i.cantidad||1) * Number(i.costoUnitario||0)));
+        // Prorate flete → landed cost total for this lot
+        const fleteItem     = (fleteComp > 0 && subtotalComp > 0)
+          ? fleteComp * subtotalItem / subtotalComp
+          : 0;
+        return {
+          ...i, compraId: c.id, proveedor: c.proveedor, compraFecha: c.fecha,
+          costoTotal: subtotalItem + fleteItem,
+        };
+      });
+  }), [compras]);
 
   // Unidades usadas + estado por lote calculado desde las conversiones
   const usadosPorLote = useMemo(() => {

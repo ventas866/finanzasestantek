@@ -131,6 +131,21 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
 
   // ── KPI stats + comparación con período anterior ──────────────────────────
   const kpiStats = useMemo(() => {
+    // Mapa de costos actuales del catálogo (incluye flete ya prorrateado)
+    const catMap = Object.fromEntries(catalogo.map((p) => [p.sku, p]));
+
+    // Costo de una venta usando costos actuales del catálogo para ítems propios
+    function costoVentaDinamico(v) {
+      const items = v.items || [];
+      if (items.length === 0) return v.costoTotal || 0;
+      return items.reduce((s, i) => {
+        if (i.esReventa) return s + (i.subtotalCosto || 0);
+        const cat = catMap[i.sku];
+        const c   = (cat?.costo ?? i.costoUnitario) || 0;
+        return s + c * Number(i.cantidad || 0);
+      }, 0);
+    }
+
     // Suma de intereses de préstamos filtrados por período
     function getIntereses(filtA, filtM) {
       return prestamos.reduce((a, p) =>
@@ -143,7 +158,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
 
     function calcFromArrays(vv, gg, extraExpenses = 0) {
       const ingresos = vv.reduce((a, v) => a + v.total, 0);
-      const costo    = vv.reduce((a, v) => a + (v.costoTotal || 0), 0);
+      const costo    = vv.reduce((a, v) => a + costoVentaDinamico(v), 0);
       const gasto    = gg.reduce((a, g) => a + g.valor, 0);
       return { ingresos, costo, gasto, ganancia: ingresos - costo - gasto - extraExpenses };
     }
@@ -170,7 +185,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
     const prev = calcFromArrays(prevV, prevG, getIntereses(prevFiltA, prevFiltM));
     const hasPrev = filtroAno !== "";
     return { curr, prev, hasPrev };
-  }, [vF, gF, filtroAno, filtroMes, ventas, gastos, prestamos]);
+  }, [vF, gF, filtroAno, filtroMes, ventas, gastos, prestamos, catalogo]);
 
   // ── Etiqueta del período seleccionado ─────────────────────────────────────
   const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -201,8 +216,21 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
   const trendGanancia = trendPct(kpiStats.curr.ganancia, kpiStats.prev.ganancia);
 
   const r = useMemo(() => {
+    // Costos dinámicos usando el catálogo actual (ya incluye flete prorrateado)
+    const catMapR = Object.fromEntries(catalogo.map((p) => [p.sku, p]));
+    function costoVentaR(v) {
+      const items = v.items || [];
+      if (items.length === 0) return v.costoTotal || 0;
+      return items.reduce((s, i) => {
+        if (i.esReventa) return s + (i.subtotalCosto || 0);
+        const cat = catMapR[i.sku];
+        const c   = (cat?.costo ?? i.costoUnitario) || 0;
+        return s + c * Number(i.cantidad || 0);
+      }, 0);
+    }
+
     const totalVentas      = vF.reduce((a, v) => a + v.total, 0);
-    const totalCostosVenta = vF.reduce((a, v) => a + (v.costoTotal || 0), 0);
+    const totalCostosVenta = vF.reduce((a, v) => a + costoVentaR(v), 0);
     const totalGastos      = gF.reduce((a, g) => a + g.valor, 0);
     const utilidadBruta    = totalVentas - totalCostosVenta;
     const utilidadNeta     = utilidadBruta - totalGastos;
@@ -343,10 +371,22 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
 
   // ── Distribución a accionistas (siempre histórico total) ──────────────────
   const distribucion = useMemo(() => {
+    const catMapD = Object.fromEntries(catalogo.map((p) => [p.sku, p]));
+    function costoVentaD(v) {
+      const items = v.items || [];
+      if (items.length === 0) return v.costoTotal || 0;
+      return items.reduce((s, i) => {
+        if (i.esReventa) return s + (i.subtotalCosto || 0);
+        const cat = catMapD[i.sku];
+        const c   = (cat?.costo ?? i.costoUnitario) || 0;
+        return s + c * Number(i.cantidad || 0);
+      }, 0);
+    }
+
     const totalIngresos      = ventas.reduce((a, v) => a + v.total, 0);
     const totalRendimientos  = rendimientos.reduce((a, r) => a + r.monto, 0);
-    // costoTotal accrual (propio + reventa) — mismo criterio que KPI Ganancia neta
-    const totalCostosVenta   = ventas.reduce((a, v) => a + (v.costoTotal || 0), 0);
+    // costoTotal accrual (propio + reventa) — dinámico para reflejar costos con flete
+    const totalCostosVenta   = ventas.reduce((a, v) => a + costoVentaD(v), 0);
     const totalGastosOp      = gastos.reduce((a, g) => a + g.valor, 0);
     const totalRetiros       = retiros.reduce((a, r) => a + r.monto, 0);
     // Intereses de préstamos = gasto financiero (afecta utilidad, no solo caja)
@@ -394,10 +434,22 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
   // Así: ventas de reventa pendientes de pago al proveedor SÍ reducen la utilidad
   // (aunque el pago físico no se haya hecho aún), igual que en los KPIs.
   const retirosPorSocio = useMemo(() => {
+    const catMapRS = Object.fromEntries(catalogo.map((p) => [p.sku, p]));
+    function costoVentaRS(v) {
+      const items = v.items || [];
+      if (items.length === 0) return v.costoTotal || 0;
+      return items.reduce((s, i) => {
+        if (i.esReventa) return s + (i.subtotalCosto || 0);
+        const cat = catMapRS[i.sku];
+        const c   = (cat?.costo ?? i.costoUnitario) || 0;
+        return s + c * Number(i.cantidad || 0);
+      }, 0);
+    }
+
     const totalIngresos     = ventas.reduce((a, v) => a + v.total, 0);
     const totalRendimientos = rendimientos.reduce((a, r) => a + r.monto, 0);
-    // costoTotal de cada venta ya incluye costo propio + reventa (accrual) — igual que en KPIs
-    const totalCostoVentas  = ventas.reduce((a, v) => a + (v.costoTotal || 0), 0);
+    // costoTotal dinámico — refleja costos actuales del catálogo (con flete)
+    const totalCostoVentas  = ventas.reduce((a, v) => a + costoVentaRS(v), 0);
     const totalGastosOp     = gastos.reduce((a, g) => a + g.valor, 0);
 
     // Intereses de préstamos = gasto financiero (reduce utilidad distribuible)
@@ -416,7 +468,7 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
       const disponible      = leCorresponde - yaRetirado;
       return { ...sc, capitalAportado, totalCapital, utilidad, yaRetirado, leCorresponde, disponible };
     });
-  }, [inversiones, ventas, gastos, retiros, rendimientos, prestamos]);
+  }, [inversiones, ventas, gastos, retiros, rendimientos, prestamos, catalogo]);
 
   const hasData = ventas.length > 0;
 

@@ -444,8 +444,8 @@ export default function Inventario({
         const costoTotal     = costoProductos + costoLotesRestantes;
         // Venta: productos al precio real + lotes al costo (margen 0, aún no convertidos)
         const ventaTotal     = ventaProductos + costoLotesRestantes;
-        // Margen solo sobre productos con precio (los lotes son neutros)
-        const margen         = ventaProductos > 0 ? (((ventaProductos - costoProductos) / ventaProductos) * 100).toFixed(1) : null;
+        // Markup sobre costo (solo productos terminados con precio, los lotes son neutros)
+        const margen         = costoProductos > 0 ? (((ventaProductos - costoProductos) / costoProductos) * 100).toFixed(1) : null;
         const lotesLabel     = costoLotesRestantes > 0
           ? `incl. ${money(Math.round(costoLotesRestantes))} en lotes`
           : "Lo que costó";
@@ -454,9 +454,9 @@ export default function Inventario({
             <InvKpi label="Valor @ costo" value={money(Math.round(costoTotal))} sub={lotesLabel} color="#ef4444" />
             <InvKpi label="Valor @ venta" value={money(Math.round(ventaTotal))}
               sub={costoLotesRestantes > 0 ? "Lotes al costo · prod. al precio" : "Potencial de venta"} color="#10b981" />
-            <InvKpi label="Margen potencial"
+            <InvKpi label="Markup s/costo"
               value={margen !== null ? `${margen}%` : "—"}
-              sub="Solo productos terminados" color="#6366f1" />
+              sub="Ganancia sobre lo invertido" color="#6366f1" />
             <InvKpi label="Sin precio" value={`${catalogo.filter((i)=>i.stock>0&&(!i.precioVenta||i.precioVenta===0)).length} SKUs`} sub="Definir precio de venta" color="#f59e0b" />
           </div>
         );
@@ -1670,7 +1670,7 @@ function renderRow(item, setEditingPrecio, guardarPrecio, editingPrecio, onDelet
       </td>
       <td style={tdStyle}>
         {item.margenPct !== null && item.margenPct !== undefined ? (
-          <span style={{ fontWeight:700, color: item.margenPct >= 30 ? "#059669" : item.margenPct >= 15 ? "#f59e0b" : "#dc2626" }}>
+          <span style={{ fontWeight:700, color: item.margenPct >= 80 ? "#059669" : item.margenPct >= 40 ? "#f59e0b" : "#dc2626" }}>
             {item.margenPct}%
           </span>
         ) : <span style={{ color:"#94a3b8" }}>—</span>}

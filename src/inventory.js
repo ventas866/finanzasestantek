@@ -125,8 +125,9 @@ export function buildInventory(
 
   // Calcular margen estimado por producto
   return Array.from(map.values()).map((item) => {
+    // Markup sobre costo: cuánto se gana encima de lo invertido
     const margenPct = item.precioVenta > 0 && item.costo > 0
-      ? round2(((item.precioVenta - item.costo) / item.precioVenta) * 100)
+      ? round2(((item.precioVenta - item.costo) / item.costo) * 100)
       : null;
     const valorVenta = item.stock * item.precioVenta;
     return { ...item, margenPct, valorVenta };

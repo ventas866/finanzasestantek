@@ -83,7 +83,7 @@ const SOCIOS_DEF = [
 ];
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], prestamos = [], onRetiro, onEditarRetiro, onEliminarRetiro, onRendimiento }) {
+export default function Dashboard({ compras, ventas, gastos, inversiones, catalogo, cuentas = [], retiros = [], rendimientos = [], prestamos = [], onRetiro, onEditarRetiro, onEliminarRetiro, onRendimiento, onRecalcularCostos }) {
   const [chartPeriod, setChartPeriod] = useState("6");
   const [filtroAno,   setFiltroAno]   = useState("");   // "" = histórico total
   const [filtroMes,   setFiltroMes]   = useState("");   // "01"–"12", solo activo si filtroAno
@@ -646,6 +646,13 @@ export default function Dashboard({ compras, ventas, gastos, inversiones, catalo
               <div style={{ fontSize:11, fontWeight:700, color:C.ink4, marginBottom:4, textTransform:"uppercase", letterSpacing:".5px" }}>POSICIÓN DE CAJA TEÓRICA</div>
               <div style={{ fontSize:26, fontWeight:700, color:r.cajaTeorica>=0 ? C.positive : C.negative }}>{money(r.cajaTeorica)}</div>
             </div>
+            {onRecalcularCostos && (
+              <button
+                onClick={onRecalcularCostos}
+                style={{ marginTop:4, width:"100%", background:"#f8fafc", border:"1px dashed #cbd5e1", borderRadius:8, padding:"9px 14px", fontSize:12, fontWeight:700, color:"#475569", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                ⟳ Recalcular costos históricos de ventas
+              </button>
+            )}
           </div>
         </div>
       </div>

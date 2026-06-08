@@ -552,6 +552,70 @@ export default function App() {
     dbSave("ventas", actualizada);
   }
 
+  // ── Recálculo masivo de costos históricos ────────────────────────────────
+  // Usa los costos ACTUALES del catálogo (buildInventory con flete prorrateado)
+  // para actualizar costoTotal + subtotalCosto en todas las ventas pasadas.
+  async function recalcularCostosHistoricos() {
+    const catMap = Object.fromEntries(catalogo.map((p) => [p.sku, p]));
+
+    const porActualizar = [];
+    for (const venta of ventas) {
+      const items = venta.items || [];
+      if (items.length === 0) continue; // sin ítems no podemos recalcular
+
+      const itemsNuevos = items.map((i) => {
+        if (i.esReventa) return i; // reventa: el costo lo ingresa el usuario, no tocar
+        const cat        = catMap[i.sku];
+        const nuevoCosto = cat?.costo ?? i.costoUnitario ?? 0; // catálogo o fallback
+        return {
+          ...i,
+          costoUnitario: nuevoCosto,
+          subtotalCosto: nuevoCosto * Number(i.cantidad || 0),
+        };
+      });
+
+      const nuevoCostoTotal   = itemsNuevos.reduce((s, i) => s + (i.subtotalCosto || 0), 0);
+      const nuevoCostoReventa = itemsNuevos.filter((i) => i.esReventa).reduce((s, i) => s + (i.subtotalCosto || 0), 0);
+
+      // Solo actualizar si el costo cambió más de $1
+      if (Math.abs(nuevoCostoTotal - (venta.costoTotal || 0)) < 1) continue;
+
+      porActualizar.push({
+        ...venta,
+        items:        itemsNuevos,
+        costoTotal:   nuevoCostoTotal,
+        costoReventa: nuevoCostoReventa,
+        utilidad:     venta.total - nuevoCostoTotal,
+      });
+    }
+
+    if (porActualizar.length === 0) {
+      alert("✓ Todos los costos ya están al día. No hay nada que actualizar.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Se van a actualizar ${porActualizar.length} venta(s) con los costos actuales del catálogo (incluye flete prorrateado).\n\n` +
+      `Las ventas de reventa no se tocan.\n\n¿Continuar?`
+    );
+    if (!ok) return;
+
+    // Actualizar estado React (optimista)
+    setVentas((prev) => prev.map((v) => {
+      const u = porActualizar.find((x) => x.id === v.id);
+      return u || v;
+    }));
+
+    // Guardar en Supabase (secuencial para no saturar)
+    let guardadas = 0;
+    for (const v of porActualizar) {
+      await dbSave("ventas", v);
+      guardadas++;
+    }
+
+    alert(`✓ ${guardadas} ventas actualizadas con costos reales.`);
+  }
+
   // ── Loading / error screens ───────────────────────────────────────────────
   if (!dbReady) return <NoSupabase />;
 
@@ -664,7 +728,7 @@ export default function App() {
         </header>
 
         <main style={pageContent} className="page-content-inner">
-          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} cuentas={cuentas} retiros={retiros} rendimientos={rendimientos} prestamos={prestamos} onRetiro={registrarRetiro} onEditarRetiro={editarRetiro} onEliminarRetiro={eliminarRetiro} onRendimiento={registrarRendimiento} />}
+          {pagina==="Dashboard"    && <Dashboard compras={compras} ventas={ventas} gastos={gastos} inversiones={inversiones} catalogo={catalogo} cuentas={cuentas} retiros={retiros} rendimientos={rendimientos} prestamos={prestamos} onRetiro={registrarRetiro} onEditarRetiro={editarRetiro} onEliminarRetiro={eliminarRetiro} onRendimiento={registrarRendimiento} onRecalcularCostos={recalcularCostosHistoricos} />}
           {pagina==="Inventario"   && (
             <Inventario
               catalogo={catalogo}
